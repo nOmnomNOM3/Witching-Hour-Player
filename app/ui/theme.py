@@ -28,16 +28,27 @@ THEMES = {
         "ACCENT_FG": "#000000",
         "ACCENT_HOVER": "#ff9a33",
     },
-    "waifu": {
+    # Commenting out OG waifu theme, probably want to just add a Minah edition later this is just for fun
+    #"waifu": {
+    #    "label": "Waifu",
+    #    "BG": "#2a1624",
+    #    "PANEL": "#3d2233",
+    #    "FIELD": "#4a2a3e",
+    #    "FG": "#fff0f6",
+    #    "MUTED": "#e7a7c4",
+    #    "ACCENT": "#ff7eb6",
+    #    "ACCENT_FG": "#2a1020",
+    #    "ACCENT_HOVER": "#ffa3cc",
+     "waifu": {
         "label": "Waifu",
-        "BG": "#2a1624",
-        "PANEL": "#3d2233",
-        "FIELD": "#4a2a3e",
-        "FG": "#fff0f6",
-        "MUTED": "#e7a7c4",
-        "ACCENT": "#ff7eb6",
-        "ACCENT_FG": "#2a1020",
-        "ACCENT_HOVER": "#ffa3cc",
+        "BG": "#10182A",
+        "PANEL": "#1A2438",
+        "FIELD": "#24344C",
+        "FG": "#F3F6FF",
+        "MUTED": "#8FA6C8",
+        "ACCENT": "#4F8CFF",
+        "ACCENT_FG": "#081018",
+        "ACCENT_HOVER": "#7EB0FF",
     },
 }
 

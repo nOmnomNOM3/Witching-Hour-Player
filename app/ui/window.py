@@ -102,6 +102,7 @@ class AppWindow:
 
         body = ttk.Frame(self.root)
         body.pack(fill="both", expand=True, padx=20)
+        self.body = body
 
         left = ttk.Frame(body, style="Panel.TFrame")
         left.pack(side="left", fill="both", expand=True, padx=(0, 8))
@@ -161,6 +162,10 @@ class AppWindow:
             font=("Segoe UI", 11),
         )
         self.order_list.pack(fill="both", expand=True, padx=12, pady=(0, 12))
+
+        self.mascot_frame = ttk.Frame(body)
+        self.mascot_label = Label(self.mascot_frame, borderwidth=0, highlightthickness=0)
+        self.mascot_label.pack(fill="both", expand=True, padx=4, pady=8)
 
         options = ttk.Frame(self.root)
         options.pack(fill="x", padx=20, pady=10)
@@ -342,37 +347,39 @@ class AppWindow:
         self._bg_photo = None
         self._mascot_photo = None
         self.bg_label = Label(self.root, borderwidth=0)
-        self.mascot_label = Label(self.root, borderwidth=0)
         self._refresh_theme_chrome()
 
+    def _hide_theme_chrome(self):
+        self.bg_label.place_forget()
+        self.bg_label.configure(image="")
+        self.mascot_label.configure(image="", bg=theme.BG)
+        self.mascot_frame.pack_forget()
+        self._bg_photo = None
+        self._mascot_photo = None
+
     def _refresh_theme_chrome(self):
-        name = theme.CURRENT
-        extras = name in ("waifu", "classic")
-        if extras:
-            bg_file = paths.asset_path(f"{name}_bg.png")
-            char_file = paths.asset_path(f"{name}_character.png")
-            if os.path.isfile(bg_file):
-                try:
-                    self._bg_photo = PhotoImage(file=bg_file)
-                    self.bg_label.configure(image=self._bg_photo, bg=theme.BG)
-                    self.bg_label.place(x=0, y=0, relwidth=1, relheight=1)
-                    self.bg_label.lower()
-                except Exception:
-                    self.bg_label.place_forget()
-            else:
+        self._hide_theme_chrome()
+        if theme.CURRENT != "waifu":
+            return
+        #bg_file = paths.asset_path("waifu_bg.png")
+        bg_file = paths.asset_path("waifu_bg_placeholder.png")
+        #char_file = paths.asset_path("waifu_character.png")
+        char_file = paths.asset_path("waifu_minahS.png")
+        if os.path.isfile(bg_file):
+            try:
+                self._bg_photo = PhotoImage(file=bg_file)
+                self.bg_label.configure(image=self._bg_photo, bg=theme.BG)
+                self.bg_label.place(x=0, y=0, relwidth=1, relheight=1)
+                self.bg_label.lower()
+            except Exception:
                 self.bg_label.place_forget()
-            if os.path.isfile(char_file):
-                try:
-                    self._mascot_photo = PhotoImage(file=char_file)
-                    self.mascot_label.configure(image=self._mascot_photo, bg=theme.BG)
-                    self.mascot_label.place(relx=1.0, rely=1.0, x=-8, y=-8, anchor="se")
-                except Exception:
-                    self.mascot_label.place_forget()
-            else:
-                self.mascot_label.place_forget()
-        else:
-            self.bg_label.place_forget()
-            self.mascot_label.place_forget()
+        if os.path.isfile(char_file):
+            try:
+                self._mascot_photo = PhotoImage(file=char_file)
+                self.mascot_label.configure(image=self._mascot_photo, bg=theme.BG)
+                self.mascot_frame.pack(side="right", fill="y", padx=(8, 0))
+            except Exception:
+                self.mascot_frame.pack_forget()
 
     def _paint_lists(self):
 
@@ -389,7 +396,7 @@ class AppWindow:
         ttk.Label(dialog, text=f"Version {theme.APP_VERSION}").pack()
         ttk.Label(
             dialog,
-            text="Local folder playback. No streaming services.",
+            text="Local media playlist builder",
         ).pack(padx=24, pady=(8, 12))
         ttk.Button(
             dialog,
