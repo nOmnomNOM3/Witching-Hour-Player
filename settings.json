@@ -1,0 +1,18 @@
+{
+    "vlc_path": "C:\\Program Files\\VideoLAN\\VLC\\vlc.exe",
+    "library_folders": [
+        "Z:\\My Videos\\TV Shows"
+    ],
+    "watch_order": [
+        "Rosario + Vampire \u2014 Season 01",
+        "Toradora!",
+        "The Testament of Sister New Devil"
+    ],
+    "episode_mode": "universal",
+    "universal_count": 3,
+    "individual_counts": {},
+    "start_mode": "memory",
+    "history_limit": 100,
+    "sleep_timer_mode": "minutes",
+    "sleep_timer_minutes": 10
+}
