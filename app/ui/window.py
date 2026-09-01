@@ -1,8 +1,9 @@
 import os
 import webbrowser
-from tkinter import Listbox, Menu, StringVar, Tk, Toplevel, filedialog, messagebox
+from tkinter import Label, Listbox, Menu, PhotoImage, StringVar, Tk, Toplevel, filedialog, messagebox
 from tkinter import ttk
 
+from .. import paths
 from .. import settings as settings_mod
 from ..library import Library, format_watch_entry, parse_watch_entry
 from ..memory import Memory
@@ -29,6 +30,7 @@ class AppWindow:
         self.root.title("Witching Hour")
         self.root.geometry("1100x780")
         self.root.minsize(960, 680)
+        self._set_window_icon()
         theme.apply(self.root, self.settings.get("theme", "modern"))
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
 
@@ -46,6 +48,7 @@ class AppWindow:
 
         self._build_menu()
         self._build_layout()
+        self._init_theme_chrome()
         self._refresh_timer_label()
         self.refresh_library()
         if not self.settings["vlc_path"]:
@@ -311,14 +314,68 @@ class AppWindow:
         self.redraw_order()
         self.persist()
 
+    def _set_window_icon(self):
+        ico = paths.asset_path("app.ico")
+        png = paths.asset_path("app.png")
+        try:
+            if os.path.isfile(ico):
+                self.root.iconbitmap(ico)
+        except Exception:
+            pass
+        try:
+            if os.path.isfile(png):
+                icon = PhotoImage(file=png)
+                self.root.iconphoto(True, icon)
+                self._icon_image = icon
+        except Exception:
+            pass
+
     def set_theme(self, name):
         name = theme.apply(self.root, name)
         self.settings["theme"] = name
         self.theme_var.set(name)
         self._paint_lists()
+        self._refresh_theme_chrome()
         self.persist()
 
+    def _init_theme_chrome(self):
+        self._bg_photo = None
+        self._mascot_photo = None
+        self.bg_label = Label(self.root, borderwidth=0)
+        self.mascot_label = Label(self.root, borderwidth=0)
+        self._refresh_theme_chrome()
+
+    def _refresh_theme_chrome(self):
+        name = theme.CURRENT
+        extras = name in ("waifu", "classic")
+        if extras:
+            bg_file = paths.asset_path(f"{name}_bg.png")
+            char_file = paths.asset_path(f"{name}_character.png")
+            if os.path.isfile(bg_file):
+                try:
+                    self._bg_photo = PhotoImage(file=bg_file)
+                    self.bg_label.configure(image=self._bg_photo, bg=theme.BG)
+                    self.bg_label.place(x=0, y=0, relwidth=1, relheight=1)
+                    self.bg_label.lower()
+                except Exception:
+                    self.bg_label.place_forget()
+            else:
+                self.bg_label.place_forget()
+            if os.path.isfile(char_file):
+                try:
+                    self._mascot_photo = PhotoImage(file=char_file)
+                    self.mascot_label.configure(image=self._mascot_photo, bg=theme.BG)
+                    self.mascot_label.place(relx=1.0, rely=1.0, x=-8, y=-8, anchor="se")
+                except Exception:
+                    self.mascot_label.place_forget()
+            else:
+                self.mascot_label.place_forget()
+        else:
+            self.bg_label.place_forget()
+            self.mascot_label.place_forget()
+
     def _paint_lists(self):
+
         for widget in (self.show_list, self.season_list, self.order_list):
             theme.paint_listbox(widget)
 
