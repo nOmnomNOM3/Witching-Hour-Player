@@ -1,0 +1,61 @@
+{
+    "items": [
+        {
+            "show": "Toradora!",
+            "season": 1,
+            "episode": 5,
+            "path": "Z:\\My Videos\\TV Shows\\Anime\\Toradora!\\Toradora! 05.mkv",
+            "resume_time": 0,
+            "next_season": 1,
+            "next_episode": 6
+        },
+        {
+            "show": "Toradora!",
+            "season": 1,
+            "episode": 6,
+            "path": "Z:\\My Videos\\TV Shows\\Anime\\Toradora!\\Toradora! 06.mkv",
+            "resume_time": 0,
+            "next_season": 1,
+            "next_episode": 7
+        },
+        {
+            "show": "Toradora!",
+            "season": 1,
+            "episode": 7,
+            "path": "Z:\\My Videos\\TV Shows\\Anime\\Toradora!\\Toradora! 07.mkv",
+            "resume_time": 0,
+            "next_season": 1,
+            "next_episode": 8
+        },
+        {
+            "show": "The Testament of Sister New Devil",
+            "season": 1,
+            "episode": 2,
+            "path": "Z:\\My Videos\\TV Shows\\Anime\\The Testament of Sister New Devil\\The Testament of Sister New Devil - 10.mp4",
+            "resume_time": 0,
+            "next_season": 1,
+            "next_episode": 3
+        },
+        {
+            "show": "The Testament of Sister New Devil",
+            "season": 1,
+            "episode": 3,
+            "path": "Z:\\My Videos\\TV Shows\\Anime\\The Testament of Sister New Devil\\The Testament of Sister New Devil - 11.mp4",
+            "resume_time": 0,
+            "next_season": 1,
+            "next_episode": 4
+        },
+        {
+            "show": "The Testament of Sister New Devil",
+            "season": 1,
+            "episode": 4,
+            "path": "Z:\\My Videos\\TV Shows\\Anime\\The Testament of Sister New Devil\\The Testament of Sister New Devil - 12.mp4",
+            "resume_time": 0,
+            "next_season": 1,
+            "next_episode": 1
+        }
+    ],
+    "current_index": 3,
+    "current_time": 4,
+    "updated": "2026-08-31T21:14:54"
+}
