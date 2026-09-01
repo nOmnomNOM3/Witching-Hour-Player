@@ -1,0 +1,24 @@
+{
+  "name": "witching-hour-player",
+  "version": "1.0.0",
+  "description": "Video player that shuffles shows and episodes while you sleep",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nOmnomNOM3/Witching-Hour-Player.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/nOmnomNOM3/Witching-Hour-Player/issues"
+  },
+  "homepage": "https://github.com/nOmnomNOM3/Witching-Hour-Player#readme",
+  "devDependencies": {
+    "electron": "^44.1.0"
+  }
+}
