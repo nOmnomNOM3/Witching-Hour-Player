@@ -29,12 +29,12 @@ class AppWindow:
         self.root.title("Witching Hour")
         self.root.geometry("1100x780")
         self.root.minsize(960, 680)
-        theme.apply(self.root)
+        theme.apply(self.root, self.settings.get("theme", "modern"))
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
-        self.custom_timer_var = StringVar(
-                    value=str(self.settings.get("sleep_timer_minutes", 15))
-                )
 
+        self.custom_timer_var = StringVar(
+            value=str(self.settings.get("sleep_timer_minutes", 15))
+        )
         self.status = StringVar(value="Ready.")
         self.count_var = StringVar(value=str(self.settings.get("universal_count", 3)))
         self.mode_var = StringVar(value=self.settings.get("episode_mode", "universal"))
@@ -55,12 +55,30 @@ class AppWindow:
         menu = Menu(self.root)
         file_menu = Menu(menu, tearoff=0)
         file_menu.add_command(label="Add library folder…", command=self.add_library)
+        file_menu.add_command(label="Remove a library folder…", command=self.remove_library)
+        file_menu.add_command(label="Clear all libraries…", command=self.clear_libraries)
         file_menu.add_command(label="Rescan library", command=self.refresh_library)
         file_menu.add_separator()
         file_menu.add_command(label="Sleep timer…", command=self.sleep_dialog)
         file_menu.add_separator()
         file_menu.add_command(label="Exit", command=self.on_close)
         menu.add_cascade(label="File", menu=file_menu)
+
+        view_menu = Menu(menu, tearoff=0)
+        self.theme_var = StringVar(value=theme.normalize_name(self.settings.get("theme", "modern")))
+        for key, spec in theme.THEMES.items():
+            view_menu.add_radiobutton(
+                label=spec["label"],
+                value=key,
+                variable=self.theme_var,
+                command=lambda name=key: self.set_theme(name),
+            )
+        menu.add_cascade(label="View", menu=view_menu)
+
+        help_menu = Menu(menu, tearoff=0)
+        help_menu.add_command(label="About Witching Hour", command=self.show_about)
+        menu.add_cascade(label="Help", menu=help_menu)
+
         self.root.config(menu=menu)
 
     def _build_layout(self):
@@ -293,7 +311,43 @@ class AppWindow:
         self.redraw_order()
         self.persist()
 
+    def set_theme(self, name):
+        name = theme.apply(self.root, name)
+        self.settings["theme"] = name
+        self.theme_var.set(name)
+        self._paint_lists()
+        self.persist()
+
+    def _paint_lists(self):
+        for widget in (self.show_list, self.season_list, self.order_list):
+            theme.paint_listbox(widget)
+
+    def show_about(self):
+        dialog = Toplevel(self.root)
+        dialog.title("About Witching Hour")
+        dialog.configure(bg=theme.BG)
+        dialog.resizable(False, False)
+        dialog.transient(self.root)
+        ttk.Label(dialog, text="Witching Hour", style="Title.TLabel").pack(padx=24, pady=(18, 4))
+        ttk.Label(dialog, text=f"Version {theme.APP_VERSION}").pack()
+        ttk.Label(
+            dialog,
+            text="Local folder playback. No streaming services.",
+        ).pack(padx=24, pady=(8, 12))
+        ttk.Button(
+            dialog,
+            text="GitHub repository",
+            command=lambda: webbrowser.open(theme.GITHUB_BRANCH),
+        ).pack(fill="x", padx=24, pady=3)
+        ttk.Button(
+            dialog,
+            text="Submit a bug report",
+            command=lambda: webbrowser.open(theme.GITHUB_BUGS),
+        ).pack(fill="x", padx=24, pady=3)
+        ttk.Button(dialog, text="Close", command=dialog.destroy).pack(pady=(12, 18))
+
     def add_library(self):
+
         folder = filedialog.askdirectory(title="Choose a TV library folder")
         if not folder:
             return
@@ -303,13 +357,104 @@ class AppWindow:
             folders.append(folder)
         self.refresh_library()
 
-    def warn_missing_vlc(self):
-        if messagebox.askyesno(
-            "VLC required",
-            "VLC was not found in Program Files or Program Files (x86).\n\n"
-            "Open the official download page?",
+    def remove_library(self):
+        folders = list(self.settings.get("library_folders", []))
+        if not folders:
+            self.status.set("No library folders to remove.")
+            return
+        dialog = Toplevel(self.root)
+        dialog.title("Remove library folder")
+        dialog.configure(bg=theme.BG)
+        dialog.transient(self.root)
+        ttk.Label(dialog, text="Select a folder to remove").pack(padx=16, pady=(12, 6))
+        listing = Listbox(
+            dialog,
+            exportselection=False,
+            bg=theme.FIELD,
+            fg=theme.FG,
+            selectbackground=theme.ACCENT,
+            height=min(8, max(3, len(folders))),
+        )
+        listing.pack(fill="both", expand=True, padx=16)
+        for folder in folders:
+            listing.insert("end", folder)
+
+        def drop():
+            selected = listing.curselection()
+            if not selected:
+                return
+            folder = folders[selected[0]]
+            self.settings["library_folders"] = [
+                item for item in self.settings.get("library_folders", []) if item != folder
+            ]
+            self.refresh_library()
+            dialog.destroy()
+
+        ttk.Button(dialog, text="Remove", command=drop).pack(pady=12)
+
+    def clear_libraries(self):
+        folders = self.settings.get("library_folders", [])
+        if not folders:
+            self.status.set("Library is already empty.")
+            return
+        if not messagebox.askyesno(
+            "Clear libraries",
+            "Remove all library folders from Witching Hour?\n\n"
+            "This does not delete video files. It only forgets the folders "
+            "this app is pointed at.",
         ):
-            webbrowser.open(VLC_DOWNLOAD_URL)
+            return
+        self.settings["library_folders"] = []
+        self.settings["watch_order"] = []
+        self.refresh_library()
+        self.status.set("Libraries cleared. Add a folder to start over.")
+
+    def browse_vlc(self):
+        path = filedialog.askopenfilename(
+            title="Locate vlc.exe",
+            filetypes=[("VLC", "vlc.exe"), ("Programs", "*.exe"), ("All files", "*.*")],
+        )
+        if not path:
+            return
+        path = os.path.normpath(path)
+        if not os.path.isfile(path):
+            messagebox.showerror("VLC", "That file does not exist.")
+            return
+        self.settings["vlc_path"] = path
+        self.persist()
+        self.status.set(f"Using VLC at {path}")
+
+    def warn_missing_vlc(self):
+        dialog = Toplevel(self.root)
+        dialog.title("VLC required")
+        dialog.configure(bg=theme.BG)
+        dialog.transient(self.root)
+        dialog.resizable(False, False)
+        ttk.Label(
+            dialog,
+            text=(
+                "Witching Hour could not find VLC.\n\n"
+                "Checked:\n"
+                "• The saved path in settings\n"
+                "• Program Files and Program Files (x86)\n"
+                "• vlc.exe on PATH\n\n"
+                "Install VLC, or point this app at vlc.exe."
+            ),
+            justify="left",
+        ).pack(padx=20, pady=(16, 8))
+        row = ttk.Frame(dialog)
+        row.pack(pady=(0, 16))
+        ttk.Button(
+            row,
+            text="Download VLC",
+            command=lambda: webbrowser.open(VLC_DOWNLOAD_URL),
+        ).pack(side="left", padx=6)
+        ttk.Button(
+            row,
+            text="Locate vlc.exe…",
+            command=lambda: (dialog.destroy(), self.browse_vlc()),
+        ).pack(side="left", padx=6)
+        ttk.Button(row, text="Cancel", command=dialog.destroy).pack(side="left", padx=6)
 
     def sleep_dialog(self):
         dialog = Toplevel(self.root)

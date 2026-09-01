@@ -12,6 +12,7 @@ DEFAULTS = {
     "history_limit": 100,
     "sleep_timer_mode": "off",
     "sleep_timer_minutes": 60,
+    "theme": "modern",
 }
 
 
