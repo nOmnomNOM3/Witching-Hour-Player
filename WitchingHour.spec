@@ -33,6 +33,8 @@ exe = EXE(
     upx=False,
     console=False,
     disable_windowed_traceback=False,
+    icon="assets/app.ico",
+    datas=[("assets", "assets")],
 )
 
 coll = COLLECT(
