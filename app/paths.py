@@ -28,6 +28,16 @@ def user_data_folder():
     return folder
 
 
+def bundle_folder():
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        return sys._MEIPASS
+    return program_folder()
+
+
+def asset_path(*parts):
+    return os.path.join(bundle_folder(), "assets", *parts)
+
+
 def data_path(name):
     return os.path.join(user_data_folder(), name)
 

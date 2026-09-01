@@ -1,6 +1,6 @@
 from tkinter import ttk
 
-APP_VERSION = "0.3.0"
+from ..version import APP_VERSION
 GITHUB_REPO = "https://github.com/nOmnomNOM3/Witching-Hour-Player"
 GITHUB_BRANCH = "https://github.com/nOmnomNOM3/Witching-Hour-Player/tree/nomnom"
 GITHUB_BUGS = "https://github.com/nOmnomNOM3/Witching-Hour-Player/issues/new"
