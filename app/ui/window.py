@@ -57,13 +57,13 @@ THEMES = {
     },
     "waifu": {
         "label": "Waifu",
-        "bg": "#10182A",
-        "panel": "rgba(16, 24, 42, 188)",
-        "field": "rgba(36, 52, 76, 210)",
-        "fg": "#F3F6FF",
-        "muted": "#8FA6C8",
-        "accent": "#4F8CFF",
-        "accent_fg": "#081018",
+        "bg": "#1c1c1e",
+        "panel": "rgba(28, 28, 30, 188)",
+        "field": "rgba(58, 58, 60, 210)",
+        "fg": "#f2f2f7",
+        "muted": "#8e8e93",
+        "accent": "#0a84ff",
+        "accent_fg": "#ffffff",
         "glass": True,
     },
 }
@@ -187,13 +187,6 @@ class QtAppWindow(QMainWindow):
         root.setContentsMargins(20, 16, 20, 12)
         root.setSpacing(8)
 
-        title = QLabel("Witching Hour")
-        title.setObjectName("title")
-        root.addWidget(title)
-        subtitle = QLabel("Local folders → short playlist → VLC")
-        subtitle.setObjectName("muted")
-        root.addWidget(subtitle)
-
         self.search = QLineEdit()
         self.search.setPlaceholderText("Search shows")
         self.search.textChanged.connect(self.redraw_shows)
@@ -203,12 +196,15 @@ class QtAppWindow(QMainWindow):
         left = QVBoxLayout()
         left.addWidget(QLabel("Shows"))
         self.show_list = QListWidget()
+        self.show_list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.show_list.setTextElideMode(Qt.ElideRight)
         self.show_list.setSelectionMode(QListWidget.ExtendedSelection)
         self.show_list.itemSelectionChanged.connect(self.redraw_seasons)
         self.show_list.itemDoubleClicked.connect(lambda *_: self.add_selected())
         left.addWidget(self.show_list)
         left.addWidget(QLabel("Seasons"))
         self.season_list = QListWidget()
+        self.season_list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.season_list.setMaximumHeight(120)
         left.addWidget(self.season_list)
         lists.addLayout(left, 1)
@@ -231,6 +227,8 @@ class QtAppWindow(QMainWindow):
         right = QVBoxLayout()
         right.addWidget(QLabel("Watch order"))
         self.order_list = QListWidget()
+        self.order_list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.order_list.setTextElideMode(Qt.ElideRight)
         right.addWidget(self.order_list)
         lists.addLayout(right, 1)
         root.addLayout(lists, 1)
@@ -304,24 +302,14 @@ class QtAppWindow(QMainWindow):
     def _layout_layers(self):
         area = self.stage.rect()
         self.backdrop.setGeometry(area)
-        colors = THEMES[self.theme_name]
-        if colors["glass"]:
-            width = max(560, int(area.width() * 0.64))
-            margin = 16
-            self.glass.setGeometry(
-                margin,
-                margin,
-                min(width, area.width() - margin * 2),
-                area.height() - margin * 2,
-            )
-        else:
-            margin = 12
-            self.glass.setGeometry(
-                margin,
-                margin,
-                max(1, area.width() - margin * 2),
-                max(1, area.height() - margin * 2),
-            )
+        margin = 12
+        right_gap = 260 if THEMES[self.theme_name]["glass"] else margin
+        self.glass.setGeometry(
+            margin,
+            margin,
+            max(1, area.width() - margin - right_gap),
+            max(1, area.height() - margin * 2),
+        )
         self.backdrop.lower()
         self.glass.raise_()
 
@@ -383,40 +371,41 @@ class QtAppWindow(QMainWindow):
             QLabel#title {{ font-size: 22px; font-weight: 700; }}
             QLabel#muted {{ color: {colors['muted']}; }}
             QScrollBar:vertical {{
-                background: transparent;
-                width: 12px;
-                margin: 0px 0px 0px 0;
+                background: rgba(255, 255, 255, 36);
+                width: 10px;
+                margin: 0px;
                 border: none;
-                border-radius: 6px;
-            }}
+                border-radius: 5px;
+                }}
+            QScrollBar::handle:vertical,
+            QScrollBar::handle:vertical:hover,
+            QScrollBar::handle:vertical:pressed {{
+                 min-height: 32px;
+                border: none;
+                border-radius: 5px;
+                }}
             QScrollBar::handle:vertical {{
-                background: {colors['muted']};
-                min-height: 32px;
-                border: none;
-                border-radius: 6px;
-            }}
-            QScrollBar::handle:vertical:hover {{
-                background: {colors['accent']};
-            }}
+                background: #0a84ff;
+                }}
+            QScrollBar::handle:vertical:hover,
+            QScrollBar::handle:vertical:pressed {{
+                background: #f2f2f7;
+                }}
             QScrollBar::add-line:vertical,
-            QScrollBar::sub-line:vertical {{
-                height: 0;
-                width: 0;
-                border: none;
-                background: none;
-                border-radius: 6px;
-            }}
+            QScrollBar::sub-line:vertical,
             QScrollBar::add-page:vertical,
             QScrollBar::sub-page:vertical {{
+                height: 0px;
+                width: 0px;
                 background: none;
-                border-radius: 6px;
+                border: none;
             }}
             QScrollBar:horizontal {{
-                background: transparent;
-                height: 12px;
-                margin: 0 0px 0px 0px;
+                background: {colors['muted']};
+                height: 10px;
+                margin: 0px;
                 border: none;
-                border-radius: 6px;
+                border-radius: 5px;
             }}
             QScrollBar::handle:horizontal {{
                 background: {colors['muted']};
@@ -428,19 +417,16 @@ class QtAppWindow(QMainWindow):
                 background: {colors['accent']};
             }}
             QScrollBar::add-line:horizontal,
-            QScrollBar::sub-line:horizontal {{
-                width: 0;
-                height: 0;
-                border: none;
-                background: none;
-                border-radius: 6px;
-            }}
+            QScrollBar::sub-line:horizontal,
             QScrollBar::add-page:horizontal,
             QScrollBar::sub-page:horizontal {{
-                border: none;
+                height: 0px;
+                width: 0px;
                 background: none;
-                border-radius: 6px;
+                border: none;
             }}
+            QLabel#title {{ font-size: 22px; font-weight: 700; }}
+            QLabel#muted {{ color: {colors['muted']}; }}
             """
         )
         self._refresh_timer_label()
@@ -799,6 +785,7 @@ class QtAppWindow(QMainWindow):
     @staticmethod
     def run():
         app = QApplication.instance() or QApplication(sys.argv)
+        app.setStyle("Fusion")
         window = QtAppWindow()
         window.show()
         sys.exit(app.exec())
