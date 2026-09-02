@@ -1,3 +1,3 @@
-from .window import AppWindow
+from .window import QtAppWindow
 
-__all__ = ["AppWindow"]
+__all__ = ["QtAppWindow"]

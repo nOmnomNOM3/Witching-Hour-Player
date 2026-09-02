@@ -69,6 +69,15 @@ THEMES = {
 }
 
 
+
+def first_existing(*names):
+    for name in names:
+        path = paths.asset_path(name)
+        if os.path.isfile(path):
+            return path
+    return ""
+
+
 class Backdrop(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -119,8 +128,10 @@ class QtAppWindow(QMainWindow):
         self.setMinimumSize(QSize(960, 680))
         self._set_icon()
 
-        self.backdrop = Backdrop(self)
-        self.glass = QWidget(self)
+        self.stage = QWidget()
+        self.setCentralWidget(self.stage)
+        self.backdrop = Backdrop(self.stage)
+        self.glass = QWidget(self.stage)
         self.glass.setObjectName("glass")
 
         self._build_menu()
@@ -291,13 +302,26 @@ class QtAppWindow(QMainWindow):
         self._layout_layers()
 
     def _layout_layers(self):
-        self.backdrop.setGeometry(self.rect())
+        area = self.stage.rect()
+        self.backdrop.setGeometry(area)
         colors = THEMES[self.theme_name]
         if colors["glass"]:
-            width = int(self.width() * 0.66)
-            self.glass.setGeometry(16, 8, max(640, width), self.height() - 16)
+            width = max(560, int(area.width() * 0.64))
+            margin = 16
+            self.glass.setGeometry(
+                margin,
+                margin,
+                min(width, area.width() - margin * 2),
+                area.height() - margin * 2,
+            )
         else:
-            self.glass.setGeometry(0, 0, self.width(), self.height())
+            margin = 12
+            self.glass.setGeometry(
+                margin,
+                margin,
+                max(1, area.width() - margin * 2),
+                max(1, area.height() - margin * 2),
+            )
         self.backdrop.lower()
         self.glass.raise_()
 
@@ -313,8 +337,15 @@ class QtAppWindow(QMainWindow):
         colors = THEMES[self.theme_name]
         if colors["glass"]:
             self.backdrop.set_art(
-                paths.asset_path("waifu_bg.png"),
-                paths.asset_path("waifu_character.png"),
+                first_existing(
+                    "waifu_bg_placeholder.png",
+                    "waifu_bg.png",
+                ),
+                first_existing(
+                    "waifu_mihanS.png",
+                    "waifu_minahS.png",
+                    "waifu_character.png",
+                ),
             )
             self.backdrop.show()
         else:
@@ -351,6 +382,65 @@ class QtAppWindow(QMainWindow):
             }}
             QLabel#title {{ font-size: 22px; font-weight: 700; }}
             QLabel#muted {{ color: {colors['muted']}; }}
+            QScrollBar:vertical {{
+                background: transparent;
+                width: 12px;
+                margin: 0px 0px 0px 0;
+                border: none;
+                border-radius: 6px;
+            }}
+            QScrollBar::handle:vertical {{
+                background: {colors['muted']};
+                min-height: 32px;
+                border: none;
+                border-radius: 6px;
+            }}
+            QScrollBar::handle:vertical:hover {{
+                background: {colors['accent']};
+            }}
+            QScrollBar::add-line:vertical,
+            QScrollBar::sub-line:vertical {{
+                height: 0;
+                width: 0;
+                border: none;
+                background: none;
+                border-radius: 6px;
+            }}
+            QScrollBar::add-page:vertical,
+            QScrollBar::sub-page:vertical {{
+                background: none;
+                border-radius: 6px;
+            }}
+            QScrollBar:horizontal {{
+                background: transparent;
+                height: 12px;
+                margin: 0 0px 0px 0px;
+                border: none;
+                border-radius: 6px;
+            }}
+            QScrollBar::handle:horizontal {{
+                background: {colors['muted']};
+                min-width: 32px;
+                border: none;
+                border-radius: 6px;
+            }}
+            QScrollBar::handle:horizontal:hover {{
+                background: {colors['accent']};
+            }}
+            QScrollBar::add-line:horizontal,
+            QScrollBar::sub-line:horizontal {{
+                width: 0;
+                height: 0;
+                border: none;
+                background: none;
+                border-radius: 6px;
+            }}
+            QScrollBar::add-page:horizontal,
+            QScrollBar::sub-page:horizontal {{
+                border: none;
+                background: none;
+                border-radius: 6px;
+            }}
             """
         )
         self._refresh_timer_label()
