@@ -1,74 +1,33 @@
 # Witching Hour
 
-Local night-mode TV player. Point it at folders of video files, build a short
-watch order, play in VLC, resume later, and pause on a sleep timer.
+Local TV-folder player. Point it at your show directories, build a short watch order, and let VLC shuffle through episodes with resume memory and a sleep timer.
 
-It does **not** talk to Netflix, Max, or any other streaming service.
-
-## Why this rewrite
-
-The original was a single ~6–7k line GPT script: Halloween theme, everything
-in one file, settings and playback mixed with widgets. This layout keeps the
-same job but splits work by responsibility so you can change the scanner
-without touching the window.
-
-```
-witching_hour/
-  main.py              # start here
-  app/
-    paths.py           # config file locations
-    store.py           # JSON load/save
-    settings.py
-    vlc.py             # find VLC, launch, RC socket
-    library.py         # folder walk, seasons, filename parse
-    memory.py          # per-show cursor + unfinished session
-    playback.py        # build playlist + monitor
-    ui/
-      theme.py
-      window.py        # ttk UI
-```
+This is not a streaming client. Nothing leaves your machine except VLC playing files you already have.
 
 ## Requirements
 
-- Windows (VLC path discovery is Windows-oriented; the rest is plain Python)
-- Python 3.10+
-- VLC ([videolan.org/vlc](https://www.videolan.org/vlc/))
-- Standard library only (`tkinter`, `json`, `socket`, …)
+- Windows 10 or 11
+- [VLC](https://www.videolan.org/vlc/) (64-bit or 32-bit)
+- A folder of video content. Example below:
+Shows/
+Show 1
+Season 01/
+Season 02/
+Show 2
+text## Run from source
 
-```bat
-python main.py
-```
+## First launch
 
-## Player: VLC vs mpv
+1. Install VLC if it is missing. The app looks in Program Files, Program Files (x86), PATH, then lets you browse to `vlc.exe`.
+2. File → Add library folder.
+3. Pick shows, add them to Watch order, set episodes-per-show and a sleep timer, Start playback.
 
-**Keep VLC as the default.** You already depend on it, it decodes everything,
-and users can install it in two clicks. This app talks to it over the RC
-interface (`get_time`, `pause`, current file).
+## Themes
 
-**mpv is the better long-term embed** if you want a player *inside* the window
-or tighter IPC (`--input-ipc-server` JSON). Use mpv when you outgrow “launch
-an external playlist.” Do not switch just to switch.
+View menu: **Modern**, **Classic**, **Waifu**.
 
-UWP is not a good fit. It is a C# / XAML store-app model, not something you
-wrap around this Python project. If you ever want a native Windows shell,
-that is a separate WinUI 3 app, not a restyle of this repo.
-
-## How it behaves
-
-1. Add one or more library roots (a show folder, a folder of shows, or a
-   parent with category folders).
-2. Immediate children that are only containers are walked. Folders with video
-   or season-shaped children become shows.
-3. Select a show, optionally a season, add to the watch order.
-4. Start: N episodes per show, from memory or a random start, handed to VLC.
-5. Position is polled every 2 seconds. Closing VLC early keeps an unfinished
-   session. Sleep timer can pause VLC after N minutes or at end of episode.
-
-## Data files (next to `main.py` or the exe)
-
-| File | Role |
-|---|---|
-| `settings.json` | libraries, VLC path, counts, timer |
-| `playback_memory.json` | season / episode / seconds per show |
-| `unfinished_session.json` | mid-playlist snapshot |
-| `watch_history.json` | what was sent to VLC |
+## Disclaimer
+   This software is subject to change at any time or be removed without notice.
+   The software may work on versions of windows other than 10/11, but will not be tested. 
+   
+   It is also entierly vibecoded using GPT, xAI, or DeepSeek depending on various things. 
