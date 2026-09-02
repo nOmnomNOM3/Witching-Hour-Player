@@ -1,8 +1,10 @@
-# PyInstaller spec. Run from this folder:
+# Qt branch spec. Run from this folder:
 #   pyinstaller WitchingHour.spec
 
 import os
 import sys
+
+from PyInstaller.utils.hooks import collect_all
 
 sys.path.insert(0, os.path.abspath("."))
 
@@ -22,8 +24,20 @@ icon_file = "assets/app.ico"
 icon_arg = icon_file if os.path.isfile(icon_file) else None
 
 datas = []
+binaries = []
+hiddenimports = [
+    "PySide6.QtCore",
+    "PySide6.QtGui",
+    "PySide6.QtWidgets",
+]
+
 if os.path.isdir("assets"):
     datas.append(("assets", "assets"))
+
+pyside_datas, pyside_binaries, pyside_hidden = collect_all("PySide6")
+datas += pyside_datas
+binaries += pyside_binaries
+hiddenimports += pyside_hidden
 
 version_info = VSVersionInfo(
     ffi=FixedFileInfo(
@@ -61,13 +75,13 @@ version_info = VSVersionInfo(
 a = Analysis(
     ["main.py"],
     pathex=[],
-    binaries=[],
+    binaries=binaries,
     datas=datas,
-    hiddenimports=[],
+    hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=["tkinter", "PyQt5", "PyQt6"],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,

@@ -10,7 +10,7 @@ if not exist "%BUILD_ROOT%" mkdir "%BUILD_ROOT%"
 if not exist "%DIST_DIR%" mkdir "%DIST_DIR%"
 if not exist "%WORK_DIR%" mkdir "%WORK_DIR%"
 
-python -m pip install --upgrade pip pyinstaller
+python -m pip install --upgrade pip pyinstaller PySide6
 python -m PyInstaller --noconfirm --clean --distpath "%DIST_DIR%" --workpath "%WORK_DIR%" WitchingHour.spec
 
 echo.
