@@ -1,231 +1,367 @@
 import os
+import sys
 import webbrowser
-from tkinter import Label, Listbox, Menu, PhotoImage, StringVar, Tk, Toplevel, filedialog, messagebox
-from tkinter import ttk
+
+from PySide6.QtCore import Qt, QTimer, QSize
+from PySide6.QtGui import QAction, QActionGroup, QColor, QIcon, QPainter, QPixmap
+from PySide6.QtWidgets import (
+    QApplication,
+    QButtonGroup,
+    QFileDialog,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QListWidget,
+    QMainWindow,
+    QMessageBox,
+    QPushButton,
+    QRadioButton,
+    QSizePolicy,
+    QVBoxLayout,
+    QWidget,
+)
 
 from .. import paths
 from .. import settings as settings_mod
 from ..library import Library, format_watch_entry, parse_watch_entry
 from ..memory import Memory
 from ..playback import build_playlist, remaining_session_items
+from ..version import APP_VERSION, VERSION
 from ..vlc import VLC_DOWNLOAD_URL, VlcSession, find_vlc, normalize_media_path
-from . import theme
+
+GITHUB_BRANCH = "https://github.com/nOmnomNOM3/Witching-Hour-Player/tree/nomnom"
+GITHUB_BUGS = "https://github.com/nOmnomNOM3/Witching-Hour-Player/issues/new"
+
+THEMES = {
+    "modern": {
+        "label": "Modern",
+        "bg": "#1c1c1e",
+        "panel": "rgba(44, 44, 46, 255)",
+        "field": "#3a3a3c",
+        "fg": "#f2f2f7",
+        "muted": "#8e8e93",
+        "accent": "#0a84ff",
+        "accent_fg": "#ffffff",
+        "glass": False,
+    },
+    "classic": {
+        "label": "Classic",
+        "bg": "#000000",
+        "panel": "rgba(20, 10, 20, 255)",
+        "field": "#1a0f08",
+        "fg": "#ffffff",
+        "muted": "#c9b8a8",
+        "accent": "#ff7a00",
+        "accent_fg": "#000000",
+        "glass": False,
+    },
+    "waifu": {
+        "label": "Waifu",
+        "bg": "#10182A",
+        "panel": "rgba(16, 24, 42, 188)",
+        "field": "rgba(36, 52, 76, 210)",
+        "fg": "#F3F6FF",
+        "muted": "#8FA6C8",
+        "accent": "#4F8CFF",
+        "accent_fg": "#081018",
+        "glass": True,
+    },
+}
 
 
-class AppWindow:
+class Backdrop(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.bg = QPixmap()
+        self.character = QPixmap()
+
+    def set_art(self, bg_path, char_path):
+        self.bg = QPixmap(bg_path) if bg_path and os.path.isfile(bg_path) else QPixmap()
+        self.character = (
+            QPixmap(char_path) if char_path and os.path.isfile(char_path) else QPixmap()
+        )
+        self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.fillRect(self.rect(), QColor("#10182A"))
+        if not self.bg.isNull():
+            scaled = self.bg.scaled(
+                self.size(), Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation
+            )
+            x = (self.width() - scaled.width()) // 2
+            y = (self.height() - scaled.height()) // 2
+            painter.drawPixmap(x, y, scaled)
+        if not self.character.isNull():
+            max_h = int(self.height() * 0.92)
+            scaled = self.character.scaledToHeight(max_h, Qt.SmoothTransformation)
+            x = self.width() - scaled.width() - 8
+            y = self.height() - scaled.height()
+            painter.drawPixmap(x, y, scaled)
+
+
+class QtAppWindow(QMainWindow):
     def __init__(self):
+        super().__init__()
         self.settings = settings_mod.load_settings()
         self.settings["vlc_path"] = find_vlc(self.settings.get("vlc_path", ""))
         settings_mod.save_settings(self.settings)
-
         self.library = Library()
         self.memory = Memory()
         self.vlc = VlcSession()
         self.filtered = []
-        self.monitor_id = None
-        self.timer_id = None
-        self.episode_timer_id = None
+        self.theme_name = self.settings.get("theme", "modern")
+        if self.theme_name not in THEMES:
+            self.theme_name = "modern"
 
-        self.root = Tk()
-        self.root.title("Witching Hour")
-        self.root.geometry("1100x780")
-        self.root.minsize(960, 680)
-        self._set_window_icon()
-        theme.apply(self.root, self.settings.get("theme", "modern"))
-        self.root.protocol("WM_DELETE_WINDOW", self.on_close)
+        self.setWindowTitle("Witching Hour")
+        self.resize(1100, 780)
+        self.setMinimumSize(QSize(960, 680))
+        self._set_icon()
 
-        self.custom_timer_var = StringVar(
-            value=str(self.settings.get("sleep_timer_minutes", 15))
-        )
-        self.status = StringVar(value="Ready.")
-        self.count_var = StringVar(value=str(self.settings.get("universal_count", 3)))
-        self.mode_var = StringVar(value=self.settings.get("episode_mode", "universal"))
-        self.start_var = StringVar(value=self.settings.get("start_mode", "memory"))
-        self.search_var = StringVar()
-        self.now_var = StringVar(value="Now playing: —")
-        self.next_var = StringVar(value="Next: —")
-        self.timer_var = StringVar(value="Sleep timer: off")
+        self.backdrop = Backdrop(self)
+        self.glass = QWidget(self)
+        self.glass.setObjectName("glass")
 
         self._build_menu()
-        self._build_layout()
-        self._init_theme_chrome()
-        self._refresh_timer_label()
+        self._build_glass()
+        self._apply_theme()
         self.refresh_library()
-        if not self.settings["vlc_path"]:
-            self.root.after(400, self.warn_missing_vlc)
+        if not self.settings.get("library_folders"):
+            QTimer.singleShot(200, self.add_library)
+        if not self.settings.get("vlc_path"):
+            QTimer.singleShot(400, self.warn_missing_vlc)
+
+        self.monitor = QTimer(self)
+        self.monitor.setInterval(2000)
+        self.monitor.timeout.connect(self._monitor)
+        self.sleep_timer = QTimer(self)
+        self.sleep_timer.setSingleShot(True)
+        self.sleep_timer.timeout.connect(self._sleep_pause)
+        self.episode_timer = QTimer(self)
+        self.episode_timer.setInterval(1000)
+        self.episode_timer.timeout.connect(self._poll_end_of_episode)
+
+    def _set_icon(self):
+        for name in ("app.ico", "app.png"):
+            path = paths.asset_path(name)
+            if os.path.isfile(path):
+                self.setWindowIcon(QIcon(path))
+                return
 
     def _build_menu(self):
-        menu = Menu(self.root)
-        file_menu = Menu(menu, tearoff=0)
-        file_menu.add_command(label="Add library folder…", command=self.add_library)
-        file_menu.add_command(label="Remove a library folder…", command=self.remove_library)
-        file_menu.add_command(label="Clear all libraries…", command=self.clear_libraries)
-        file_menu.add_command(label="Rescan library", command=self.refresh_library)
-        file_menu.add_separator()
-        file_menu.add_command(label="Sleep timer…", command=self.sleep_dialog)
-        file_menu.add_separator()
-        file_menu.add_command(label="Exit", command=self.on_close)
-        menu.add_cascade(label="File", menu=file_menu)
+        file_menu = self.menuBar().addMenu("File")
+        file_menu.addAction("Add library folder…", self.add_library)
+        file_menu.addAction("Remove a library folder…", self.remove_library)
+        file_menu.addAction("Clear all libraries…", self.clear_libraries)
+        file_menu.addAction("Rescan library", self.refresh_library)
+        file_menu.addSeparator()
+        file_menu.addAction("Exit", self.close)
 
-        view_menu = Menu(menu, tearoff=0)
-        self.theme_var = StringVar(value=theme.normalize_name(self.settings.get("theme", "modern")))
-        for key, spec in theme.THEMES.items():
-            view_menu.add_radiobutton(
-                label=spec["label"],
-                value=key,
-                variable=self.theme_var,
-                command=lambda name=key: self.set_theme(name),
-            )
-        menu.add_cascade(label="View", menu=view_menu)
+        view_menu = self.menuBar().addMenu("View")
+        group = QActionGroup(self)
+        group.setExclusive(True)
+        for key, spec in THEMES.items():
+            action = QAction(spec["label"], self, checkable=True)
+            action.setChecked(key == self.theme_name)
+            action.triggered.connect(lambda checked, name=key: self.set_theme(name))
+            group.addAction(action)
+            view_menu.addAction(action)
 
-        help_menu = Menu(menu, tearoff=0)
-        help_menu.add_command(label="About Witching Hour", command=self.show_about)
-        menu.add_cascade(label="Help", menu=help_menu)
+        help_menu = self.menuBar().addMenu("Help")
+        help_menu.addAction("About Witching Hour", self.show_about)
 
-        self.root.config(menu=menu)
+    def _build_glass(self):
+        root = QVBoxLayout(self.glass)
+        root.setContentsMargins(20, 16, 20, 12)
+        root.setSpacing(8)
 
-    def _build_layout(self):
-        header = ttk.Frame(self.root)
-        header.pack(fill="x", padx=20, pady=(16, 8))
-        ttk.Label(header, text="Witching Hour", style="Title.TLabel").pack(anchor="w")
-        ttk.Label(
-            header,
-            text="Local folders → short playlist → VLC",
-            foreground=theme.MUTED,
-            background=theme.BG,
-        ).pack(anchor="w", pady=(2, 0))
+        title = QLabel("Witching Hour")
+        title.setObjectName("title")
+        root.addWidget(title)
+        subtitle = QLabel("Local folders → short playlist → VLC")
+        subtitle.setObjectName("muted")
+        root.addWidget(subtitle)
 
-        search = ttk.Frame(self.root)
-        search.pack(fill="x", padx=20, pady=(0, 8))
-        ttk.Entry(search, textvariable=self.search_var).pack(side="left", fill="x", expand=True)
-        self.search_var.trace_add("write", lambda *_: self.redraw_shows())
+        self.search = QLineEdit()
+        self.search.setPlaceholderText("Search shows")
+        self.search.textChanged.connect(self.redraw_shows)
+        root.addWidget(self.search)
 
-        body = ttk.Frame(self.root)
-        body.pack(fill="both", expand=True, padx=20)
-        self.body = body
+        lists = QHBoxLayout()
+        left = QVBoxLayout()
+        left.addWidget(QLabel("Shows"))
+        self.show_list = QListWidget()
+        self.show_list.setSelectionMode(QListWidget.ExtendedSelection)
+        self.show_list.itemSelectionChanged.connect(self.redraw_seasons)
+        self.show_list.itemDoubleClicked.connect(lambda *_: self.add_selected())
+        left.addWidget(self.show_list)
+        left.addWidget(QLabel("Seasons"))
+        self.season_list = QListWidget()
+        self.season_list.setMaximumHeight(120)
+        left.addWidget(self.season_list)
+        lists.addLayout(left, 1)
 
-        left = ttk.Frame(body, style="Panel.TFrame")
-        left.pack(side="left", fill="both", expand=True, padx=(0, 8))
-        ttk.Label(left, text="Shows", style="Panel.TLabel").pack(anchor="w", padx=12, pady=(10, 4))
-        self.show_list = Listbox(
-            left,
-            selectmode="extended",
-            exportselection=False,
-            bg=theme.FIELD,
-            fg=theme.FG,
-            selectbackground=theme.ACCENT,
-            selectforeground=theme.ACCENT_FG,
-            highlightthickness=0,
-            borderwidth=0,
-            font=("Segoe UI", 11),
-        )
-        self.show_list.pack(fill="both", expand=True, padx=12)
-        self.show_list.bind("<<ListboxSelect>>", lambda e: self.redraw_seasons())
-        self.show_list.bind("<Double-Button-1>", lambda e: self.add_selected())
+        mid = QVBoxLayout()
+        mid.addStretch()
+        for text, fn in (
+            ("Add →", self.add_selected),
+            ("← Remove", self.remove_selected),
+            ("Move up", lambda: self.move(-1)),
+            ("Move down", lambda: self.move(1)),
+            ("Clear", self.clear_order),
+        ):
+            button = QPushButton(text)
+            button.clicked.connect(fn)
+            mid.addWidget(button)
+        mid.addStretch()
+        lists.addLayout(mid)
 
-        ttk.Label(left, text="Seasons", style="Muted.TLabel").pack(anchor="w", padx=12, pady=(8, 2))
-        self.season_list = Listbox(
-            left,
-            height=5,
-            exportselection=False,
-            bg=theme.FIELD,
-            fg=theme.FG,
-            selectbackground=theme.ACCENT,
-            selectforeground=theme.ACCENT_FG,
-            highlightthickness=0,
-            borderwidth=0,
-            font=("Segoe UI", 10),
-        )
-        self.season_list.pack(fill="x", padx=12, pady=(0, 12))
+        right = QVBoxLayout()
+        right.addWidget(QLabel("Watch order"))
+        self.order_list = QListWidget()
+        right.addWidget(self.order_list)
+        lists.addLayout(right, 1)
+        root.addLayout(lists, 1)
 
-        mid = ttk.Frame(body)
-        mid.pack(side="left", padx=6)
-        ttk.Button(mid, text="Add →", command=self.add_selected).pack(pady=4)
-        ttk.Button(mid, text="← Remove", command=self.remove_selected).pack(pady=4)
-        ttk.Button(mid, text="Move up", command=lambda: self.move(-1)).pack(pady=4)
-        ttk.Button(mid, text="Move down", command=lambda: self.move(1)).pack(pady=4)
-        ttk.Button(mid, text="Clear", command=self.clear_order).pack(pady=12)
+        options = QHBoxLayout()
+        count_box = QVBoxLayout()
+        count_box.addWidget(QLabel("Episodes per show"))
+        self.count = QLineEdit(str(self.settings.get("universal_count", 3)))
+        self.count.setMaximumWidth(60)
+        count_box.addWidget(self.count)
+        options.addLayout(count_box)
 
-        right = ttk.Frame(body, style="Panel.TFrame")
-        right.pack(side="left", fill="both", expand=True, padx=(8, 0))
-        ttk.Label(right, text="Watch order", style="Panel.TLabel").pack(anchor="w", padx=12, pady=(10, 4))
-        self.order_list = Listbox(
-            right,
-            selectmode="single",
-            exportselection=False,
-            bg=theme.FIELD,
-            fg=theme.FG,
-            selectbackground=theme.ACCENT,
-            selectforeground=theme.ACCENT_FG,
-            highlightthickness=0,
-            borderwidth=0,
-            font=("Segoe UI", 11),
-        )
-        self.order_list.pack(fill="both", expand=True, padx=12, pady=(0, 12))
+        start_box = QVBoxLayout()
+        start_box.addWidget(QLabel("Starting point"))
+        self.start_memory = QRadioButton("Continue from memory")
+        self.start_random = QRadioButton("Random start")
+        group = QButtonGroup(self)
+        group.addButton(self.start_memory)
+        group.addButton(self.start_random)
+        if self.settings.get("start_mode") == "random":
+            self.start_random.setChecked(True)
+        else:
+            self.start_memory.setChecked(True)
+        start_box.addWidget(self.start_memory)
+        start_box.addWidget(self.start_random)
+        options.addLayout(start_box)
+        root.addLayout(options)
 
-        self.mascot_frame = ttk.Frame(body)
-        self.mascot_label = Label(self.mascot_frame, borderwidth=0, highlightthickness=0)
-        self.mascot_label.pack(fill="both", expand=True, padx=4, pady=8)
+        info = QHBoxLayout()
+        self.now_label = QLabel("Now playing: —")
+        self.next_label = QLabel("Next: —")
+        self.timer_label = QLabel("Sleep timer: off")
+        info.addWidget(self.now_label)
+        info.addWidget(self.next_label)
+        info.addStretch()
+        info.addWidget(self.timer_label)
+        root.addLayout(info)
 
-        options = ttk.Frame(self.root)
-        options.pack(fill="x", padx=20, pady=10)
-        count_panel = ttk.Frame(options, style="Panel.TFrame")
-        count_panel.pack(side="left", fill="x", expand=True, padx=(0, 6))
-        ttk.Label(count_panel, text="Episodes per show", style="Panel.TLabel").pack(
-            anchor="w", padx=12, pady=(8, 2)
-        )
-        ttk.Entry(count_panel, textvariable=self.count_var, width=6).pack(anchor="w", padx=12, pady=(0, 10))
-
-        start_panel = ttk.Frame(options, style="Panel.TFrame")
-        start_panel.pack(side="left", fill="x", expand=True, padx=(6, 0))
-        ttk.Label(start_panel, text="Starting point", style="Panel.TLabel").pack(
-            anchor="w", padx=12, pady=(8, 2)
-        )
-        ttk.Radiobutton(
-            start_panel, text="Continue from memory", variable=self.start_var, value="memory"
-        ).pack(anchor="w", padx=12)
-        ttk.Radiobutton(
-            start_panel, text="Random start", variable=self.start_var, value="random"
-        ).pack(anchor="w", padx=12, pady=(0, 10))
-
-        info = ttk.Frame(self.root, style="Panel.TFrame")
-        info.pack(fill="x", padx=20)
-        ttk.Label(info, textvariable=self.now_var, style="Panel.TLabel").pack(side="left", padx=12, pady=8)
-        ttk.Label(info, textvariable=self.next_var, style="Muted.TLabel").pack(side="left", padx=12)
-        ttk.Label(info, textvariable=self.timer_var, style="Muted.TLabel").pack(side="right", padx=12)
-
-        sleep_row = ttk.Frame(self.root)
-        sleep_row.pack(fill="x", padx=20, pady=(10, 0))
-        ttk.Label(sleep_row, text="Sleep timer").pack(side="left", padx=(0, 8))
-        ttk.Button(sleep_row, text="Off", command=lambda: self.set_sleep("off")).pack(side="left", padx=2)
+        sleep = QHBoxLayout()
+        sleep.addWidget(QLabel("Sleep timer"))
+        off = QPushButton("Off")
+        off.clicked.connect(lambda: self.set_sleep("off"))
+        sleep.addWidget(off)
         for minutes in (5, 10, 15, 30, 45, 60):
-            ttk.Button(
-                sleep_row,
-                text=f"{minutes}m",
-                command=lambda value=minutes: self.set_sleep("minutes", value),
-            ).pack(side="left", padx=2)
-        ttk.Button(
-            sleep_row,
-            text="End of episode",
-            command=lambda: self.set_sleep("end_episode"),
-        ).pack(side="left", padx=8)
-        ttk.Entry(sleep_row, textvariable=self.custom_timer_var, width=5).pack(side="left")
-        ttk.Button(sleep_row, text="Custom min", command=self.apply_custom_sleep).pack(
-            side="left", padx=4
-        )
+            button = QPushButton(f"{minutes}m")
+            button.clicked.connect(lambda checked=False, value=minutes: self.set_sleep("minutes", value))
+            sleep.addWidget(button)
+        end = QPushButton("End of episode")
+        end.clicked.connect(lambda: self.set_sleep("end_episode"))
+        sleep.addWidget(end)
+        self.custom_sleep = QLineEdit(str(self.settings.get("sleep_timer_minutes", 15)))
+        self.custom_sleep.setMaximumWidth(50)
+        sleep.addWidget(self.custom_sleep)
+        custom = QPushButton("Custom min")
+        custom.clicked.connect(self.apply_custom_sleep)
+        sleep.addWidget(custom)
+        sleep.addStretch()
+        root.addLayout(sleep)
 
-        ttk.Button(self.root, text="Start playback", style="Accent.TButton", command=self.start).pack(
-            pady=12
+        play = QPushButton("Start playback")
+        play.setObjectName("accent")
+        play.clicked.connect(self.start)
+        root.addWidget(play)
+        self.status = QLabel("Ready.")
+        root.addWidget(self.status)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._layout_layers()
+
+    def _layout_layers(self):
+        self.backdrop.setGeometry(self.rect())
+        colors = THEMES[self.theme_name]
+        if colors["glass"]:
+            width = int(self.width() * 0.66)
+            self.glass.setGeometry(16, 8, max(640, width), self.height() - 16)
+        else:
+            self.glass.setGeometry(0, 0, self.width(), self.height())
+        self.backdrop.lower()
+        self.glass.raise_()
+
+    def set_theme(self, name):
+        if name not in THEMES:
+            return
+        self.theme_name = name
+        self.settings["theme"] = name
+        self.persist()
+        self._apply_theme()
+
+    def _apply_theme(self):
+        colors = THEMES[self.theme_name]
+        if colors["glass"]:
+            self.backdrop.set_art(
+                paths.asset_path("waifu_bg.png"),
+                paths.asset_path("waifu_character.png"),
+            )
+            self.backdrop.show()
+        else:
+            self.backdrop.set_art("", "")
+            self.backdrop.hide()
+        self.setStyleSheet(
+            f"""
+            QMainWindow, QWidget {{ background: {colors['bg']}; color: {colors['fg']}; }}
+            QMenuBar, QMenu {{ background: {colors['bg']}; color: {colors['fg']}; }}
+            #glass {{
+                background-color: {colors['panel']};
+                border-radius: 14px;
+            }}
+            QLineEdit, QListWidget {{
+                background: {colors['field']};
+                color: {colors['fg']};
+                border: none;
+                padding: 6px;
+            }}
+            QListWidget::item:selected {{
+                background: {colors['accent']};
+                color: {colors['accent_fg']};
+            }}
+            QPushButton {{
+                background: {colors['field']};
+                color: {colors['fg']};
+                border: none;
+                padding: 8px 12px;
+            }}
+            QPushButton#accent {{
+                background: {colors['accent']};
+                color: {colors['accent_fg']};
+                padding: 10px 18px;
+            }}
+            QLabel#title {{ font-size: 22px; font-weight: 700; }}
+            QLabel#muted {{ color: {colors['muted']}; }}
+            """
         )
-        ttk.Label(self.root, textvariable=self.status).pack(anchor="w", padx=20, pady=(0, 12))
+        self._refresh_timer_label()
+        self._layout_layers()
 
     def persist(self):
         try:
-            self.settings["universal_count"] = max(1, int(self.count_var.get()))
+            self.settings["universal_count"] = max(1, int(self.count.text()))
         except ValueError:
             pass
-        self.settings["start_mode"] = self.start_var.get()
-        self.settings["episode_mode"] = self.mode_var.get()
+        self.settings["start_mode"] = "random" if self.start_random.isChecked() else "memory"
         settings_mod.save_settings(self.settings)
 
     def refresh_library(self):
@@ -238,80 +374,71 @@ class AppWindow:
         self.settings["watch_order"] = kept
         self.redraw_shows()
         self.redraw_order()
-        self.status.set(f"{len(self.library.shows)} shows")
+        self.status.setText(f"{len(self.library.shows)} shows")
         self.persist()
 
     def redraw_shows(self):
-        query = self.search_var.get().strip().lower()
+        query = self.search.text().strip().lower()
         if query:
             self.filtered = [show for show in self.library.shows if query in show.lower()]
         else:
             self.filtered = list(self.library.shows)
-        self.show_list.delete(0, "end")
-        for show in self.filtered:
-            self.show_list.insert("end", show)
+        self.show_list.clear()
+        self.show_list.addItems(self.filtered)
         self.redraw_seasons()
 
     def redraw_seasons(self):
-        self.season_list.delete(0, "end")
-        self.season_list.insert("end", "All seasons")
-        selected = self.show_list.curselection()
-        if len(selected) != 1:
-            self.season_list.selection_set(0)
+        self.season_list.clear()
+        self.season_list.addItem("All seasons")
+        items = self.show_list.selectedItems()
+        if len(items) != 1:
+            self.season_list.setCurrentRow(0)
             return
-        show = self.filtered[selected[0]]
+        show = items[0].text()
         for number in self.library.seasons_for(show):
-            self.season_list.insert("end", f"Season {number:02d}")
-        self.season_list.selection_set(0)
+            self.season_list.addItem(f"Season {number:02d}")
+        self.season_list.setCurrentRow(0)
 
     def redraw_order(self):
-        self.order_list.delete(0, "end")
-        for entry in self.settings.get("watch_order", []):
-            self.order_list.insert("end", entry)
+        self.order_list.clear()
+        self.order_list.addItems(self.settings.get("watch_order", []))
 
     def selected_season(self):
-        choice = self.season_list.curselection()
-        if not choice:
+        item = self.season_list.currentItem()
+        if item is None or item.text().lower().startswith("all"):
             return None
-        label = self.season_list.get(choice[0])
-        if label.lower().startswith("all"):
-            return None
-        digits = "".join(ch for ch in label if ch.isdigit())
+        digits = "".join(ch for ch in item.text() if ch.isdigit())
         return int(digits) if digits else None
 
     def add_selected(self):
         added = 0
         season = self.selected_season()
-        for index in self.show_list.curselection():
-            show = self.filtered[index]
-            entry = format_watch_entry(show, season)
+        for item in self.show_list.selectedItems():
+            entry = format_watch_entry(item.text(), season)
             if entry not in self.settings["watch_order"]:
                 self.settings["watch_order"].append(entry)
                 added += 1
         self.redraw_order()
         self.persist()
-        self.status.set(f"Added {added} item(s)" if added else "Already in watch order")
+        self.status.setText(f"Added {added} item(s)" if added else "Already in watch order")
 
     def remove_selected(self):
-        selected = self.order_list.curselection()
-        if not selected:
+        row = self.order_list.currentRow()
+        if row < 0:
             return
-        del self.settings["watch_order"][selected[0]]
+        del self.settings["watch_order"][row]
         self.redraw_order()
         self.persist()
 
     def move(self, delta):
-        selected = self.order_list.curselection()
-        if not selected:
-            return
-        index = selected[0]
-        dest = index + delta
+        row = self.order_list.currentRow()
+        dest = row + delta
         order = self.settings["watch_order"]
-        if dest < 0 or dest >= len(order):
+        if row < 0 or dest < 0 or dest >= len(order):
             return
-        order[index], order[dest] = order[dest], order[index]
+        order[row], order[dest] = order[dest], order[row]
         self.redraw_order()
-        self.order_list.selection_set(dest)
+        self.order_list.setCurrentRow(dest)
         self.persist()
 
     def clear_order(self):
@@ -319,100 +446,8 @@ class AppWindow:
         self.redraw_order()
         self.persist()
 
-    def _set_window_icon(self):
-        ico = paths.asset_path("app.ico")
-        png = paths.asset_path("app.png")
-        try:
-            if os.path.isfile(ico):
-                self.root.iconbitmap(ico)
-        except Exception:
-            pass
-        try:
-            if os.path.isfile(png):
-                icon = PhotoImage(file=png)
-                self.root.iconphoto(True, icon)
-                self._icon_image = icon
-        except Exception:
-            pass
-
-    def set_theme(self, name):
-        name = theme.apply(self.root, name)
-        self.settings["theme"] = name
-        self.theme_var.set(name)
-        self._paint_lists()
-        self._refresh_theme_chrome()
-        self.persist()
-
-    def _init_theme_chrome(self):
-        self._bg_photo = None
-        self._mascot_photo = None
-        self.bg_label = Label(self.root, borderwidth=0)
-        self._refresh_theme_chrome()
-
-    def _hide_theme_chrome(self):
-        self.bg_label.place_forget()
-        self.bg_label.configure(image="")
-        self.mascot_label.configure(image="", bg=theme.BG)
-        self.mascot_frame.pack_forget()
-        self._bg_photo = None
-        self._mascot_photo = None
-
-    def _refresh_theme_chrome(self):
-        self._hide_theme_chrome()
-        if theme.CURRENT != "waifu":
-            return
-        #bg_file = paths.asset_path("waifu_bg.png")
-        bg_file = paths.asset_path("waifu_bg_placeholder.png")
-        #char_file = paths.asset_path("waifu_character.png")
-        char_file = paths.asset_path("waifu_minahS.png")
-        if os.path.isfile(bg_file):
-            try:
-                self._bg_photo = PhotoImage(file=bg_file)
-                self.bg_label.configure(image=self._bg_photo, bg=theme.BG)
-                self.bg_label.place(x=0, y=0, relwidth=1, relheight=1)
-                self.bg_label.lower()
-            except Exception:
-                self.bg_label.place_forget()
-        if os.path.isfile(char_file):
-            try:
-                self._mascot_photo = PhotoImage(file=char_file)
-                self.mascot_label.configure(image=self._mascot_photo, bg=theme.BG)
-                self.mascot_frame.pack(side="right", fill="y", padx=(8, 0))
-            except Exception:
-                self.mascot_frame.pack_forget()
-
-    def _paint_lists(self):
-
-        for widget in (self.show_list, self.season_list, self.order_list):
-            theme.paint_listbox(widget)
-
-    def show_about(self):
-        dialog = Toplevel(self.root)
-        dialog.title("About Witching Hour")
-        dialog.configure(bg=theme.BG)
-        dialog.resizable(False, False)
-        dialog.transient(self.root)
-        ttk.Label(dialog, text="Witching Hour", style="Title.TLabel").pack(padx=24, pady=(18, 4))
-        ttk.Label(dialog, text=f"Version {theme.APP_VERSION}").pack()
-        ttk.Label(
-            dialog,
-            text="Local media playlist builder",
-        ).pack(padx=24, pady=(8, 12))
-        ttk.Button(
-            dialog,
-            text="GitHub repository",
-            command=lambda: webbrowser.open(theme.GITHUB_BRANCH),
-        ).pack(fill="x", padx=24, pady=3)
-        ttk.Button(
-            dialog,
-            text="Submit a bug report",
-            command=lambda: webbrowser.open(theme.GITHUB_BUGS),
-        ).pack(fill="x", padx=24, pady=3)
-        ttk.Button(dialog, text="Close", command=dialog.destroy).pack(pady=(12, 18))
-
     def add_library(self):
-
-        folder = filedialog.askdirectory(title="Choose a TV library folder")
+        folder = QFileDialog.getExistingDirectory(self, "Choose a TV library folder")
         if not folder:
             return
         folder = os.path.normpath(folder)
@@ -424,211 +459,120 @@ class AppWindow:
     def remove_library(self):
         folders = list(self.settings.get("library_folders", []))
         if not folders:
-            self.status.set("No library folders to remove.")
+            self.status.setText("No library folders to remove.")
             return
-        dialog = Toplevel(self.root)
-        dialog.title("Remove library folder")
-        dialog.configure(bg=theme.BG)
-        dialog.transient(self.root)
-        ttk.Label(dialog, text="Select a folder to remove").pack(padx=16, pady=(12, 6))
-        listing = Listbox(
-            dialog,
-            exportselection=False,
-            bg=theme.FIELD,
-            fg=theme.FG,
-            selectbackground=theme.ACCENT,
-            height=min(8, max(3, len(folders))),
+        path, _ok = QFileDialog.getOpenFileName(self, "Not used")
+        # Simple chooser: pick from a list dialog
+        from PySide6.QtWidgets import QInputDialog
+        choice, ok = QInputDialog.getItem(
+            self, "Remove library folder", "Folder", folders, 0, False
         )
-        listing.pack(fill="both", expand=True, padx=16)
-        for folder in folders:
-            listing.insert("end", folder)
-
-        def drop():
-            selected = listing.curselection()
-            if not selected:
-                return
-            folder = folders[selected[0]]
-            self.settings["library_folders"] = [
-                item for item in self.settings.get("library_folders", []) if item != folder
-            ]
-            self.refresh_library()
-            dialog.destroy()
-
-        ttk.Button(dialog, text="Remove", command=drop).pack(pady=12)
+        if not ok:
+            return
+        self.settings["library_folders"] = [item for item in folders if item != choice]
+        self.refresh_library()
 
     def clear_libraries(self):
-        folders = self.settings.get("library_folders", [])
-        if not folders:
-            self.status.set("Library is already empty.")
+        if not self.settings.get("library_folders"):
+            self.status.setText("Library is already empty.")
             return
-        if not messagebox.askyesno(
+        if QMessageBox.question(
+            self,
             "Clear libraries",
-            "Remove all library folders from Witching Hour?\n\n"
-            "This does not delete video files. It only forgets the folders "
-            "this app is pointed at.",
-        ):
+            "Remove all library folders from Witching Hour?\n"
+            "This does not delete video files.",
+        ) != QMessageBox.Yes:
             return
         self.settings["library_folders"] = []
         self.settings["watch_order"] = []
         self.refresh_library()
-        self.status.set("Libraries cleared. Add a folder to start over.")
+        self.status.setText("Libraries cleared.")
 
     def browse_vlc(self):
-        path = filedialog.askopenfilename(
-            title="Locate vlc.exe",
-            filetypes=[("VLC", "vlc.exe"), ("Programs", "*.exe"), ("All files", "*.*")],
+        path, _ok = QFileDialog.getOpenFileName(
+            self, "Locate vlc.exe", "", "VLC (vlc.exe);;Programs (*.exe);;All files (*.*)"
         )
         if not path:
             return
-        path = os.path.normpath(path)
-        if not os.path.isfile(path):
-            messagebox.showerror("VLC", "That file does not exist.")
-            return
-        self.settings["vlc_path"] = path
+        self.settings["vlc_path"] = os.path.normpath(path)
         self.persist()
-        self.status.set(f"Using VLC at {path}")
+        self.status.setText(f"Using VLC at {path}")
 
     def warn_missing_vlc(self):
-        dialog = Toplevel(self.root)
-        dialog.title("VLC required")
-        dialog.configure(bg=theme.BG)
-        dialog.transient(self.root)
-        dialog.resizable(False, False)
-        ttk.Label(
-            dialog,
-            text=(
-                "Witching Hour could not find VLC.\n\n"
-                "Checked:\n"
-                "• The saved path in settings\n"
-                "• Program Files and Program Files (x86)\n"
-                "• vlc.exe on PATH\n\n"
-                "Install VLC, or point this app at vlc.exe."
-            ),
-            justify="left",
-        ).pack(padx=20, pady=(16, 8))
-        row = ttk.Frame(dialog)
-        row.pack(pady=(0, 16))
-        ttk.Button(
-            row,
-            text="Download VLC",
-            command=lambda: webbrowser.open(VLC_DOWNLOAD_URL),
-        ).pack(side="left", padx=6)
-        ttk.Button(
-            row,
-            text="Locate vlc.exe…",
-            command=lambda: (dialog.destroy(), self.browse_vlc()),
-        ).pack(side="left", padx=6)
-        ttk.Button(row, text="Cancel", command=dialog.destroy).pack(side="left", padx=6)
-
-    def sleep_dialog(self):
-        dialog = Toplevel(self.root)
-        dialog.title("Sleep timer")
-        dialog.configure(bg=theme.BG)
-        dialog.resizable(False, False)
-        dialog.transient(self.root)
-        ttk.Label(dialog, text="Pause VLC after").pack(padx=20, pady=(16, 8))
-
-        row = ttk.Frame(dialog)
-        row.pack(padx=20)
-        ttk.Button(row, text="Off", command=lambda: self._pick_sleep(dialog, "off")).pack(
-            fill="x", pady=2
+        box = QMessageBox(self)
+        box.setWindowTitle("VLC required")
+        box.setText(
+            "Witching Hour could not find VLC.\n"
+            "Install it, or point this app at vlc.exe."
         )
-        for minutes in (5, 10, 15, 30, 45, 60):
-            ttk.Button(
-                row,
-                text=f"{minutes} minutes",
-                command=lambda value=minutes: self._pick_sleep(dialog, "minutes", value),
-            ).pack(fill="x", pady=2)
-        ttk.Button(
-            row,
-            text="End of current episode",
-            command=lambda: self._pick_sleep(dialog, "end_episode"),
-        ).pack(fill="x", pady=2)
+        download = box.addButton("Download VLC", QMessageBox.AcceptRole)
+        locate = box.addButton("Locate vlc.exe…", QMessageBox.ActionRole)
+        box.addButton("Cancel", QMessageBox.RejectRole)
+        box.exec()
+        if box.clickedButton() == download:
+            webbrowser.open(VLC_DOWNLOAD_URL)
+        elif box.clickedButton() == locate:
+            self.browse_vlc()
 
-        custom = ttk.Frame(dialog)
-        custom.pack(padx=20, pady=(8, 16), fill="x")
-        ttk.Entry(custom, textvariable=self.custom_timer_var, width=6).pack(side="left")
-        ttk.Button(
-            custom,
-            text="Use custom minutes",
-            command=lambda: self._pick_custom(dialog),
-        ).pack(side="left", padx=8)
-
-    def _pick_sleep(self, dialog, mode, minutes=None):
-        self.set_sleep(mode, minutes)
-        dialog.destroy()
-
-    def _pick_custom(self, dialog):
-        if self.apply_custom_sleep():
-            dialog.destroy()
+    def show_about(self):
+        box = QMessageBox(self)
+        box.setWindowTitle("About Witching Hour")
+        box.setText(f"Witching Hour\nVersion {APP_VERSION}\n\nQt preview UI.")
+        repo = box.addButton("GitHub", QMessageBox.ActionRole)
+        bugs = box.addButton("Report a bug", QMessageBox.ActionRole)
+        box.addButton("Close", QMessageBox.AcceptRole)
+        box.exec()
+        if box.clickedButton() == repo:
+            webbrowser.open(GITHUB_BRANCH)
+        elif box.clickedButton() == bugs:
+            webbrowser.open(GITHUB_BUGS)
 
     def apply_custom_sleep(self):
         try:
-            minutes = int(self.custom_timer_var.get())
+            minutes = int(self.custom_sleep.text())
             if minutes < 1 or minutes > 1440:
                 raise ValueError
         except ValueError:
-            self.status.set("Enter minutes between 1 and 1440.")
-            return False
+            self.status.setText("Enter minutes between 1 and 1440.")
+            return
         self.set_sleep("minutes", minutes)
-        return True
 
     def set_sleep(self, mode, minutes=None):
         self.settings["sleep_timer_mode"] = mode
         if minutes is not None:
             self.settings["sleep_timer_minutes"] = int(minutes)
-            self.custom_timer_var.set(str(int(minutes)))
+            self.custom_sleep.setText(str(int(minutes)))
         self.persist()
         self._refresh_timer_label()
         if self.vlc.running():
             self._arm_sleep_timer()
-        if mode == "off":
-            self.status.set("Sleep timer off.")
-        elif mode == "end_episode":
-            self.status.set("Sleep timer will pause at the end of the current file.")
-        else:
-            self.status.set(
-                f"Sleep timer set for {self.settings['sleep_timer_minutes']} minutes."
-            )
 
     def _refresh_timer_label(self):
         mode = self.settings.get("sleep_timer_mode", "off")
         if mode == "off":
-            self.timer_var.set("Sleep timer: off")
+            self.timer_label.setText("Sleep timer: off")
         elif mode == "end_episode":
-            self.timer_var.set("Sleep timer: end of episode")
+            self.timer_label.setText("Sleep timer: end of episode")
         else:
-            self.timer_var.set(
+            self.timer_label.setText(
                 f"Sleep timer: {self.settings.get('sleep_timer_minutes', 15)} min"
             )
 
-    def _cancel_sleep_timer(self):
-        if self.timer_id is not None:
-            try:
-                self.root.after_cancel(self.timer_id)
-            except Exception:
-                pass
-            self.timer_id = None
-        if self.episode_timer_id is not None:
-            try:
-                self.root.after_cancel(self.episode_timer_id)
-            except Exception:
-                pass
-            self.episode_timer_id = None
-
     def _arm_sleep_timer(self):
-        self._cancel_sleep_timer()
+        self.sleep_timer.stop()
+        self.episode_timer.stop()
         mode = self.settings.get("sleep_timer_mode", "off")
         if mode == "off":
             return
         if mode == "end_episode":
-            self._poll_end_of_episode()
+            self.episode_timer.start()
             return
         minutes = int(self.settings.get("sleep_timer_minutes", 15))
-        self.timer_id = self.root.after(minutes * 60 * 1000, self._sleep_pause)
+        self.sleep_timer.start(minutes * 60 * 1000)
 
     def _poll_end_of_episode(self):
         if self.settings.get("sleep_timer_mode") != "end_episode":
+            self.episode_timer.stop()
             return
         current_time = self.vlc.current_time()
         total = self.vlc.current_length()
@@ -639,8 +583,6 @@ class AppWindow:
             and 0 <= (total - current_time) <= 2
         ):
             self._sleep_pause()
-            return
-        self.episode_timer_id = self.root.after(1000, self._poll_end_of_episode)
 
     def start(self):
         path = find_vlc(self.settings.get("vlc_path", ""))
@@ -649,29 +591,28 @@ class AppWindow:
             self.warn_missing_vlc()
             return
         if self.vlc.running():
-            messagebox.showinfo("Playback", "VLC is already running.")
+            QMessageBox.information(self, "Playback", "VLC is already running.")
             return
-
         if self.memory.valid_session():
-            choice = messagebox.askyesnocancel(
+            choice = QMessageBox.question(
+                self,
                 "Resume?",
                 "An unfinished playlist was found.\nYes = resume\nNo = start a new playlist",
+                QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel,
             )
-            if choice is None:
+            if choice == QMessageBox.Cancel:
                 return
-            if choice:
-                items = remaining_session_items(self.memory.session)
-                self._launch(items)
+            if choice == QMessageBox.Yes:
+                self._launch(remaining_session_items(self.memory.session))
                 return
             self.memory.clear_session()
-
         if not self.settings.get("watch_order"):
-            self.status.set("Add at least one show to the watch order.")
+            self.status.setText("Add at least one show to the watch order.")
             return
         try:
-            count = max(1, int(self.count_var.get()))
+            count = max(1, int(self.count.text()))
         except ValueError:
-            self.status.set("Enter a valid episode count.")
+            self.status.setText("Enter a valid episode count.")
             return
         self.persist()
         items = build_playlist(
@@ -682,7 +623,7 @@ class AppWindow:
             count,
         )
         if not items:
-            self.status.set("No episodes could be selected.")
+            self.status.setText("No episodes could be selected.")
             return
         self._launch(items)
 
@@ -690,43 +631,45 @@ class AppWindow:
         try:
             self.vlc.launch(self.settings["vlc_path"], items)
         except OSError as error:
-            messagebox.showerror("Playback", str(error))
+            QMessageBox.critical(self, "Playback", str(error))
             return
         self.memory.save_session(items, 0, items[0].get("resume_time", 0))
         self._update_now(0)
-        self.status.set(f"Playing {len(items)} episode(s)")
-        self.root.after(1800, self._monitor)
-        self.root.after(1500, self._arm_sleep_timer)
+        self.status.setText(f"Playing {len(items)} episode(s)")
+        self.monitor.start()
+        QTimer.singleShot(1500, self._arm_sleep_timer)
 
     def _update_now(self, index):
         items = self.memory.session.get("items", [])
         if not items or index >= len(items):
             return
         item = items[index]
-        self.now_var.set(
-            f"Now playing: {item.get('show')} S{int(item.get('season', 1)):02d}E{int(item.get('episode', 1)):02d}"
+        self.now_label.setText(
+            f"Now playing: {item.get('show')} "
+            f"S{int(item.get('season', 1)):02d}E{int(item.get('episode', 1)):02d}"
         )
         if index + 1 < len(items):
             nxt = items[index + 1]
-            self.next_var.set(
-                f"Next: {nxt.get('show')} S{int(nxt.get('season', 1)):02d}E{int(nxt.get('episode', 1)):02d}"
+            self.next_label.setText(
+                f"Next: {nxt.get('show')} "
+                f"S{int(nxt.get('season', 1)):02d}E{int(nxt.get('episode', 1)):02d}"
             )
         else:
-            self.next_var.set("Next: end of lineup")
+            self.next_label.setText("Next: end of lineup")
 
     def _monitor(self):
         items = self.memory.session.get("items", [])
         if not items:
+            self.monitor.stop()
             return
         if self.vlc.process is not None and self.vlc.process.poll() is not None:
-            self.status.set("VLC closed. Position saved.")
+            self.status.setText("VLC closed. Position saved.")
+            self.monitor.stop()
             return
-
         current_path = self.vlc.current_path()
         current_time = self.vlc.current_time()
         current_length = self.vlc.current_length()
         index = self.memory.session.get("current_index", 0)
-
         if current_path:
             for candidate, item in enumerate(items):
                 if normalize_media_path(item.get("path", "")) == current_path:
@@ -736,13 +679,11 @@ class AppWindow:
                     index = candidate
                     self.memory.session["current_index"] = index
                     break
-
         if current_time is not None and 0 <= index < len(items):
             self.memory.session["current_time"] = max(0, int(current_time))
             self.memory.interrupt(items[index], current_time)
             self.memory.save_session(items, index, current_time)
             self._update_now(index)
-
         if (
             index == len(items) - 1
             and current_time is not None
@@ -752,21 +693,22 @@ class AppWindow:
         ):
             self.memory.advance(items[index])
             self.memory.clear_session()
-            self.status.set("Playlist finished.")
-            return
-
-        self.monitor_id = self.root.after(2000, self._monitor)
+            self.status.setText("Playlist finished.")
+            self.monitor.stop()
 
     def _sleep_pause(self):
+        self.episode_timer.stop()
         if self.vlc.pause():
-            self.status.set("Sleep timer paused VLC.")
-            self.timer_var.set("Sleep timer: done")
+            self.status.setText("Sleep timer paused VLC.")
+            self.timer_label.setText("Sleep timer: done")
 
-    def on_close(self):
+    def closeEvent(self, event):
         self.persist()
-        self.root.destroy()
+        event.accept()
 
-    def run(self):
-        if not self.settings.get("library_folders"):
-            self.root.after(200, self.add_library)
-        self.root.mainloop()
+    @staticmethod
+    def run():
+        app = QApplication.instance() or QApplication(sys.argv)
+        window = QtAppWindow()
+        window.show()
+        sys.exit(app.exec())
