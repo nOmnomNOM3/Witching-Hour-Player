@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QRadioButton,
     QSizePolicy,
+    QStackedLayout,
     QVBoxLayout,
     QWidget,
 )
@@ -70,11 +71,27 @@ THEMES = {
 
 
 
+def _asset_roots():
+    roots = [
+        os.path.join(paths.bundle_folder(), "assets"),
+        os.path.join(paths.program_folder(), "assets"),
+        os.path.join(os.getcwd(), "assets"),
+        os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])), "assets"),
+    ]
+    seen = []
+    for root in roots:
+        root = os.path.abspath(root)
+        if root not in seen:
+            seen.append(root)
+    return seen
+
+
 def first_existing(*names):
-    for name in names:
-        path = paths.asset_path(name)
-        if os.path.isfile(path):
-            return path
+    for root in _asset_roots():
+        for name in names:
+            path = os.path.join(root, name)
+            if os.path.isfile(path):
+                return path
     return ""
 
 
@@ -193,8 +210,12 @@ class QtAppWindow(QMainWindow):
         root.addWidget(self.search)
 
         lists = QHBoxLayout()
+        lists.setSpacing(-28)
         left = QVBoxLayout()
-        left.addWidget(QLabel("Shows"))
+        shows_title = QLabel("Shows")
+        shows_title.setObjectName("sectionTitle")
+        shows_title.setAlignment(Qt.AlignHCenter)
+        left.addWidget(shows_title)
         self.show_list = QListWidget()
         self.show_list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.show_list.setTextElideMode(Qt.ElideRight)
@@ -202,15 +223,28 @@ class QtAppWindow(QMainWindow):
         self.show_list.itemSelectionChanged.connect(self.redraw_seasons)
         self.show_list.itemDoubleClicked.connect(lambda *_: self.add_selected())
         left.addWidget(self.show_list)
-        left.addWidget(QLabel("Seasons"))
+        seasons_title = QLabel("Seasons")
+        seasons_title.setObjectName("sectionTitleLeft")
+        seasons_title.setAlignment(Qt.AlignLeft)
+        left.addWidget(seasons_title)
         self.season_list = QListWidget()
         self.season_list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.season_list.setMaximumHeight(120)
         left.addWidget(self.season_list)
         lists.addLayout(left, 1)
 
-        mid = QVBoxLayout()
+        self.center = QWidget()
+        self.center.setObjectName("centerStage")
+        self.center.setMinimumWidth(180)
+        self.center.setMaximumWidth(790)
+        self.center_art = QLabel(self.center)
+        self.center_art.setAlignment(Qt.AlignCenter)
+        self.center_art.setObjectName("centerArt")
+        self.center_art.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        mid = QVBoxLayout(self.center)
+        mid.setContentsMargins(8, 8, 8, 8)
         mid.addStretch()
+        self.mid_buttons = []
         for text, fn in (
             ("Add →", self.add_selected),
             ("← Remove", self.remove_selected),
@@ -219,17 +253,32 @@ class QtAppWindow(QMainWindow):
             ("Clear", self.clear_order),
         ):
             button = QPushButton(text)
+            button.setObjectName("ghost")
             button.clicked.connect(fn)
             mid.addWidget(button)
+            self.mid_buttons.append(button)
         mid.addStretch()
-        lists.addLayout(mid)
+        lists.setSpacing(8)
+        lists.addWidget(self.center, 0)
 
         right = QVBoxLayout()
-        right.addWidget(QLabel("Watch order"))
+        order_title = QLabel("Watch order")
+        order_title.setObjectName("sectionTitle")
+        order_title.setAlignment(Qt.AlignHCenter)
+        right.addWidget(order_title)
         self.order_list = QListWidget()
         self.order_list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.order_list.setTextElideMode(Qt.ElideRight)
         right.addWidget(self.order_list)
+        self.now_panel = QWidget()
+        self.now_panel.setObjectName("compactPanel")
+        now_box = QVBoxLayout(self.now_panel)
+        now_box.setContentsMargins(10, 8, 10, 8)
+        self.now_label = QLabel("Now playing: —")
+        self.next_label = QLabel("Next: —")
+        now_box.addWidget(self.now_label)
+        now_box.addWidget(self.next_label)
+        right.addWidget(self.now_panel)
         lists.addLayout(right, 1)
         root.addLayout(lists, 1)
 
@@ -241,7 +290,11 @@ class QtAppWindow(QMainWindow):
         count_box.addWidget(self.count)
         options.addLayout(count_box)
 
-        start_box = QVBoxLayout()
+        self.start_panel = QWidget()
+        self.start_panel.setObjectName("compactPanel")
+        self.start_panel.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Maximum)
+        start_box = QVBoxLayout(self.start_panel)
+        start_box.setContentsMargins(10, 8, 10, 8)
         start_box.addWidget(QLabel("Starting point"))
         self.start_memory = QRadioButton("Continue from memory")
         self.start_random = QRadioButton("Random start")
@@ -254,21 +307,13 @@ class QtAppWindow(QMainWindow):
             self.start_memory.setChecked(True)
         start_box.addWidget(self.start_memory)
         start_box.addWidget(self.start_random)
-        options.addLayout(start_box)
+        options.addWidget(self.start_panel)
+        options.addStretch()
         root.addLayout(options)
 
-        info = QHBoxLayout()
-        self.now_label = QLabel("Now playing: —")
-        self.next_label = QLabel("Next: —")
-        self.timer_label = QLabel("Sleep timer: off")
-        info.addWidget(self.now_label)
-        info.addWidget(self.next_label)
-        info.addStretch()
-        info.addWidget(self.timer_label)
-        root.addLayout(info)
-
         sleep = QHBoxLayout()
-        sleep.addWidget(QLabel("Sleep timer"))
+        self.timer_label = QLabel("Sleep timer: off")
+        sleep.addWidget(self.timer_label)
         off = QPushButton("Off")
         off.clicked.connect(lambda: self.set_sleep("off"))
         sleep.addWidget(off)
@@ -286,12 +331,11 @@ class QtAppWindow(QMainWindow):
         custom.clicked.connect(self.apply_custom_sleep)
         sleep.addWidget(custom)
         sleep.addStretch()
-        root.addLayout(sleep)
-
         play = QPushButton("Start playback")
         play.setObjectName("accent")
         play.clicked.connect(self.start)
-        root.addWidget(play)
+        sleep.addWidget(play)
+        root.addLayout(sleep)
         self.status = QLabel("Ready.")
         root.addWidget(self.status)
 
@@ -303,15 +347,34 @@ class QtAppWindow(QMainWindow):
         area = self.stage.rect()
         self.backdrop.setGeometry(area)
         margin = 12
-        right_gap = 260 if THEMES[self.theme_name]["glass"] else margin
         self.glass.setGeometry(
             margin,
             margin,
-            max(1, area.width() - margin - right_gap),
+            max(1, area.width() - margin * 2),
             max(1, area.height() - margin * 2),
         )
         self.backdrop.lower()
         self.glass.raise_()
+        self._scale_center_art()
+
+    def _scale_center_art(self):
+        pix = getattr(self, "_center_pixmap", None)
+        if pix is None or pix.isNull() or THEMES[self.theme_name]["glass"] is False:
+            self.center_art.hide()
+            return
+        host = self.glass
+        box = host.size()
+        if box.height() < 10:
+            return
+        self.center_art.setParent(host)
+        # Fill the window height. Width follows aspect ratio (~790 if the PNG is 790 wide).
+        scaled = pix.scaledToHeight(box.height(), Qt.SmoothTransformation)
+        self.center_art.setPixmap(scaled)
+        self.center_art.resize(scaled.size())
+        x = (box.width() - scaled.width()) // 2
+        self.center_art.move(max(0, x), 0)
+        self.center_art.show()
+        self.center_art.lower()
 
     def set_theme(self, name):
         if name not in THEMES:
@@ -325,20 +388,24 @@ class QtAppWindow(QMainWindow):
         colors = THEMES[self.theme_name]
         if colors["glass"]:
             self.backdrop.set_art(
-                first_existing(
-                    "waifu_bg_placeholder.png",
-                    "waifu_bg.png",
-                ),
-                first_existing(
-                    "waifu_mihanS.png",
-                    "waifu_minahS.png",
-                    "waifu_character.png",
-                ),
+                first_existing("waifu_bg_placeholder.png"),
+                "",
             )
             self.backdrop.show()
+            char = first_existing("12-26-23-chaesu.png")
+            if char:
+                pix = QPixmap(char)
+                self._center_pixmap = pix
+                self._scale_center_art()
+            else:
+                self._center_pixmap = None
+                self.center_art.clear()
+            self.center_art.show()
         else:
             self.backdrop.set_art("", "")
             self.backdrop.hide()
+            self.center_art.clear()
+            self.center_art.hide()
         self.setStyleSheet(
             f"""
             QMainWindow, QWidget {{ background: {colors['bg']}; color: {colors['fg']}; }}
@@ -363,12 +430,30 @@ class QtAppWindow(QMainWindow):
                 border: none;
                 padding: 8px 12px;
             }}
+            QPushButton#ghost {{
+                background: rgba(28, 28, 30, 128);
+                color: {colors['fg']};
+            }}
+            #centerArt {{ background: transparent; }}
+            #centerStage {{ background: transparent; }}
+            #midOverlay {{ background: transparent; }}
+            #compactPanel {{
+                background: {colors['panel']};
+                border-radius: 8px;
+            }}
             QPushButton#accent {{
                 background: {colors['accent']};
                 color: {colors['accent_fg']};
                 padding: 10px 18px;
             }}
-            QLabel#title {{ font-size: 22px; font-weight: 700; }}
+            QLabel#title {{ font-size: 22px; font-weight: 700; background: transparent; }}
+            QLabel#sectionTitle, QLabel#sectionTitleLeft {{
+                background: transparent;
+                font-size: 18px;
+                font-weight: 600;
+                padding: 4px 0 6px 0;
+            }}
+
             QLabel#muted {{ color: {colors['muted']}; }}
             QScrollBar:vertical {{
                 background: rgba(255, 255, 255, 36);
@@ -376,21 +461,19 @@ class QtAppWindow(QMainWindow):
                 margin: 0px;
                 border: none;
                 border-radius: 5px;
-                }}
-            QScrollBar::handle:vertical,
-            QScrollBar::handle:vertical:hover,
-            QScrollBar::handle:vertical:pressed {{
-                 min-height: 32px;
+            }}
+            QScrollBar::handle:vertical {{
+                background: {colors['accent']};
+                min-height: 32px;
                 border: none;
                 border-radius: 5px;
-                }}
-            QScrollBar::handle:vertical {{
-                background: #0a84ff;
-                }}
+            }}
             QScrollBar::handle:vertical:hover,
             QScrollBar::handle:vertical:pressed {{
-                background: #f2f2f7;
-                }}
+                background: {colors['fg']};
+                border: none;
+                border-radius: 5px;
+            }}
             QScrollBar::add-line:vertical,
             QScrollBar::sub-line:vertical,
             QScrollBar::add-page:vertical,
@@ -401,20 +484,23 @@ class QtAppWindow(QMainWindow):
                 border: none;
             }}
             QScrollBar:horizontal {{
-                background: {colors['muted']};
+                background: rgba(255, 255, 255, 36);
                 height: 10px;
                 margin: 0px;
                 border: none;
                 border-radius: 5px;
             }}
             QScrollBar::handle:horizontal {{
-                background: {colors['muted']};
+                background: {colors['accent']};
                 min-width: 32px;
                 border: none;
-                border-radius: 6px;
+                border-radius: 5px;
             }}
-            QScrollBar::handle:horizontal:hover {{
-                background: {colors['accent']};
+            QScrollBar::handle:horizontal:hover,
+            QScrollBar::handle:horizontal:pressed {{
+                background: {colors['fg']};
+                border: none;
+                border-radius: 5px;
             }}
             QScrollBar::add-line:horizontal,
             QScrollBar::sub-line:horizontal,
@@ -425,7 +511,14 @@ class QtAppWindow(QMainWindow):
                 background: none;
                 border: none;
             }}
-            QLabel#title {{ font-size: 22px; font-weight: 700; }}
+            QLabel#title {{ font-size: 22px; font-weight: 700; background: transparent; }}
+            QLabel#sectionTitle, QLabel#sectionTitleLeft {{
+                background: transparent;
+                font-size: 18px;
+                font-weight: 600;
+                padding: 4px 0 6px 0;
+            }}
+
             QLabel#muted {{ color: {colors['muted']}; }}
             """
         )

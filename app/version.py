@@ -1,5 +1,5 @@
-VERSION = "0.3.5.1"
-VERSION_TUPLE = (0, 3, 5, 1)
+VERSION = "0.3.5.5"
+VERSION_TUPLE = (0, 3, 5, 5)
 
 APP_NAME = "Witching Hour"
 EXE_NAME = "WitchingHour"
