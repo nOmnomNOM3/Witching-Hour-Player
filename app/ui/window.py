@@ -155,8 +155,8 @@ class QtAppWindow(QMainWindow):
         self._build_glass()
         self._apply_theme()
         self.refresh_library()
-        if not self.settings.get("library_folders"):
-            QTimer.singleShot(200, self.add_library)
+        if not self._has_library():
+            QTimer.singleShot(250, self.prompt_library)
         if not self.settings.get("vlc_path"):
             QTimer.singleShot(400, self.warn_missing_vlc)
 
@@ -614,6 +614,26 @@ class QtAppWindow(QMainWindow):
         self.settings["watch_order"] = []
         self.redraw_order()
         self.persist()
+
+    def _has_library(self):
+        folders = self.settings.get("library_folders") or []
+        return any(isinstance(folder, str) and os.path.isdir(folder) for folder in folders)
+
+    def prompt_library(self):
+        box = QMessageBox(self)
+        box.setWindowTitle("Choose a library")
+        box.setText(
+            "Witching Hour needs a folder of shows before it can build a playlist.\n\n"
+            "Pick the directory that contains your series folders "
+            "(for example a 'TV Shows' folder)."
+        )
+        choose = box.addButton("Choose folder…", QMessageBox.AcceptRole)
+        box.addButton("Later", QMessageBox.RejectRole)
+        box.exec()
+        if box.clickedButton() == choose:
+            self.add_library()
+        if not self._has_library():
+            self.status.setText("No library yet. File → Add library folder when you are ready.")
 
     def add_library(self):
         folder = QFileDialog.getExistingDirectory(self, "Choose a TV library folder")

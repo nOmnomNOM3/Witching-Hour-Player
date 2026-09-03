@@ -4,12 +4,12 @@ import sys
 
 APP_NAME = "WitchingHour"
 
+# Old sidecars next to the exe. Do not copy settings/library from the
+# install folder — that re-seeds AppData every time you delete it.
 DATA_FILES = (
-    "settings.json",
     "playback_memory.json",
     "watch_history.json",
     "unfinished_session.json",
-    "library_folders.json",
 )
 
 
@@ -26,6 +26,7 @@ def user_data_folder():
     folder = os.path.join(roaming, APP_NAME)
     os.makedirs(folder, exist_ok=True)
     return folder
+
 
 
 def bundle_folder():
