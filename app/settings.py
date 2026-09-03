@@ -4,6 +4,7 @@ from .store import load_json, save_json
 DEFAULTS = {
     "vlc_path": "",
     "library_folders": [],
+    "movie_folders": [],
     "watch_order": [],
     "episode_mode": "universal",
     "universal_count": 3,

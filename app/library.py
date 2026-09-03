@@ -107,6 +107,8 @@ def format_watch_entry(show, season=None):
 
 
 def find_episodes(show_folder):
+    if os.path.isfile(show_folder):
+        return [(1, 1, show_folder)]
     episodes = []
     for root, folders, files in os.walk(show_folder):
         folders[:] = [
@@ -170,7 +172,9 @@ def parse_episode_filename(filename, folder_season):
 class Library:
     def __init__(self):
         self.shows = []
+        self.movies = []
         self.paths = {}
+        self.kinds = {}
         self.seasons = {}
 
     def _register(self, folder):
@@ -184,6 +188,7 @@ class Library:
                 name = f"{original} {counter}"
                 counter += 1
         self.paths[name] = folder
+        self.kinds[name] = "show"
         self.seasons[name] = [number for number, _path in season_children(folder)]
         self.shows.append(name)
 
@@ -204,9 +209,61 @@ class Library:
         for _name, child in children:
             self._discover(child, depth + 1, max_depth)
 
-    def scan(self, library_folders):
+    def _register_movie(self, path, display_name=None):
+        name = display_name or os.path.splitext(os.path.basename(path))[0]
+        if name in self.paths:
+            parent = os.path.basename(os.path.dirname(path))
+            name = f"{name} [{parent}]"
+            original = name
+            counter = 2
+            while name in self.paths:
+                name = f"{original} {counter}"
+                counter += 1
+        self.paths[name] = path
+        self.kinds[name] = "movie"
+        self.seasons[name] = []
+        self.movies.append(name)
+
+    def scan_movies(self, movie_folders):
+        self.movies = []
+        for root in movie_folders or []:
+            if not os.path.isdir(root):
+                continue
+            try:
+                names = os.listdir(root)
+            except OSError:
+                continue
+            for name in names:
+                path = os.path.join(root, name)
+                if os.path.isfile(path) and name.lower().endswith(VIDEO_EXTENSIONS):
+                    self._register_movie(path)
+                    continue
+                if not os.path.isdir(path):
+                    continue
+                if name.lower() in IGNORED_FOLDERS:
+                    continue
+                if is_show_folder(path) or season_children(path):
+                    continue
+                videos = []
+                try:
+                    for child in os.listdir(path):
+                        full = os.path.join(path, child)
+                        if os.path.isfile(full) and child.lower().endswith(VIDEO_EXTENSIONS):
+                            videos.append(full)
+                except OSError:
+                    continue
+                if len(videos) == 1:
+                    self._register_movie(videos[0], name)
+                else:
+                    for video in videos:
+                        self._register_movie(video)
+        self.movies.sort(key=str.lower)
+
+    def scan(self, library_folders, movie_folders=None):
         self.shows = []
+        self.movies = []
         self.paths = {}
+        self.kinds = {}
         self.seasons = {}
         for root in library_folders:
             if not os.path.isdir(root):
@@ -217,6 +274,7 @@ class Library:
             for _name, child in list_subdirectories(root):
                 self._discover(child)
         self.shows.sort(key=str.lower)
+        self.scan_movies(movie_folders)
         return self.shows
 
     def seasons_for(self, show):

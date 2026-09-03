@@ -3,7 +3,7 @@ import sys
 import webbrowser
 
 from PySide6.QtCore import Qt, QTimer, QSize, QEvent
-from PySide6.QtGui import QAction, QActionGroup, QColor, QIcon, QPainter, QPixmap
+from PySide6.QtGui import QAction, QActionGroup, QColor, QFont, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
     QButtonGroup,
@@ -139,6 +139,12 @@ class Backdrop(QWidget):
             painter.drawPixmap(x, y, scaled)
 
 
+TITLE_FONT = QFont("Segoe UI", 18)
+TITLE_FONT.setWeight(QFont.DemiBold)
+SEASON_FONT = QFont("Segoe UI", 14)
+SEASON_FONT.setWeight(QFont.DemiBold)
+
+
 class QtAppWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -163,6 +169,7 @@ class QtAppWindow(QMainWindow):
         self._set_icon()
 
         self.stage = QWidget()
+        self.stage.setObjectName("stage")
         self.setCentralWidget(self.stage)
         self.backdrop = Backdrop(self.stage)
         self.glass = QWidget(self.stage)
@@ -197,7 +204,8 @@ class QtAppWindow(QMainWindow):
 
     def _build_menu(self):
         file_menu = self.menuBar().addMenu("File")
-        file_menu.addAction("Add library folder…", self.add_library)
+        file_menu.addAction("Add TV library folder…", self.add_library)
+        file_menu.addAction("Add movie library folder…", self.add_movie_library)
         file_menu.addAction("Remove a library folder…", self.remove_library)
         file_menu.addAction("Clear all libraries…", self.clear_libraries)
         file_menu.addAction("Rescan library", self.refresh_library)
@@ -230,10 +238,15 @@ class QtAppWindow(QMainWindow):
         self.tabs = QTabWidget()
         self.tabs.setObjectName("mainTabs")
         self.tabs.setDocumentMode(True)
+        self.tabs.setAutoFillBackground(False)
+        self.tabs.tabBar().setDrawBase(False)
         self.tabs.currentChanged.connect(self._on_tab_changed)
         shell.addWidget(self.tabs)
 
         builder = QWidget()
+        builder.setObjectName("builderPage")
+        builder.setAttribute(Qt.WA_StyledBackground, False)
+        builder.setAutoFillBackground(False)
         root = QVBoxLayout(builder)
         root.setContentsMargins(8, 8, 8, 4)
         root.setSpacing(8)
@@ -246,10 +259,22 @@ class QtAppWindow(QMainWindow):
         lists = QHBoxLayout()
         lists.setSpacing(-28)
         left = QVBoxLayout()
-        shows_title = QLabel("Shows")
-        shows_title.setObjectName("sectionTitle")
-        shows_title.setAlignment(Qt.AlignHCenter)
-        left.addWidget(shows_title)
+        source_row = QHBoxLayout()
+        source_row.setContentsMargins(0, 0, 0, 0)
+        self.shows_tab = QLabel("Shows")
+        self.shows_tab.setObjectName("sourceTabActive")
+        self.shows_tab.setFont(TITLE_FONT)
+        self.shows_tab.setAlignment(Qt.AlignHCenter | Qt.AlignVCenter)
+        self.shows_tab.mousePressEvent = lambda event: self.set_source("shows")
+        self.movies_tab = QLabel("Movies")
+        self.movies_tab.setObjectName("sourceTabIdle")
+        self.movies_tab.setFont(TITLE_FONT)
+        self.movies_tab.setAlignment(Qt.AlignHCenter | Qt.AlignVCenter)
+        self.movies_tab.mousePressEvent = lambda event: self.set_source("movies")
+        source_row.addWidget(self.shows_tab, 1)
+        source_row.addWidget(self.movies_tab, 1)
+        left.addLayout(source_row)
+        self.source = "shows"
         self.show_list = QListWidget()
         self.show_list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.show_list.setTextElideMode(Qt.ElideRight)
@@ -257,10 +282,11 @@ class QtAppWindow(QMainWindow):
         self.show_list.itemSelectionChanged.connect(self.redraw_seasons)
         self.show_list.itemDoubleClicked.connect(lambda *_: self.add_selected())
         left.addWidget(self.show_list)
-        seasons_title = QLabel("Seasons")
-        seasons_title.setObjectName("sectionTitleLeft")
-        seasons_title.setAlignment(Qt.AlignLeft)
-        left.addWidget(seasons_title)
+        self.seasons_title = QLabel("Seasons")
+        self.seasons_title.setObjectName("sectionTitleLeft")
+        self.seasons_title.setFont(SEASON_FONT)
+        self.seasons_title.setAlignment(Qt.AlignLeft)
+        left.addWidget(self.seasons_title)
         self.season_list = QListWidget()
         self.season_list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.season_list.setMaximumHeight(120)
@@ -298,6 +324,7 @@ class QtAppWindow(QMainWindow):
         right = QVBoxLayout()
         order_title = QLabel("Watch order")
         order_title.setObjectName("sectionTitle")
+        order_title.setFont(TITLE_FONT)
         order_title.setAlignment(Qt.AlignHCenter)
         right.addWidget(order_title)
         self.order_list = QListWidget()
@@ -398,6 +425,9 @@ class QtAppWindow(QMainWindow):
         self.tabs.addTab(builder, "Builder Screen")
 
         history_page = QWidget()
+        history_page.setObjectName("historyPage")
+        history_page.setAttribute(Qt.WA_StyledBackground, False)
+        history_page.setAutoFillBackground(False)
         history_layout = QVBoxLayout(history_page)
         history_layout.setContentsMargins(8, 8, 8, 8)
         hint = QLabel("Last 500 files played.")
@@ -488,11 +518,22 @@ class QtAppWindow(QMainWindow):
         tab_idle = shade_hex(colors['accent'], 0.38)
         self.setStyleSheet(
             f"""
-            QMainWindow, QWidget {{ background: {colors['bg']}; color: {colors['fg']}; }}
+            QMainWindow, QWidget#stage {{ background: {colors['bg']}; color: {colors['fg']}; }}
+            QWidget {{ color: {colors['fg']}; }}
             QMenuBar, QMenu {{ background: {colors['bg']}; color: {colors['fg']}; }}
             #glass {{
                 background-color: {colors['panel']};
                 border-radius: 14px;
+            }}
+            QTabWidget#mainTabs, QTabWidget#mainTabs::pane,
+            QTabWidget#mainTabs QStackedWidget,
+            QTabBar, #builderPage, #historyPage {{
+                background: transparent;
+                border: none;
+            }}
+            QTabWidget#mainTabs::pane {{
+                top: 0px;
+                border: none;
             }}
             QLineEdit, QListWidget {{
                 background: {colors['field']};
@@ -527,11 +568,17 @@ class QtAppWindow(QMainWindow):
                 padding: 10px 18px;
             }}
             QLabel#title {{ font-size: 22px; font-weight: 700; background: transparent; }}
-            QLabel#sectionTitle, QLabel#sectionTitleLeft {{
+            QLabel#sectionTitle {{
                 background: transparent;
                 font-size: 18px;
                 font-weight: 600;
                 padding: 4px 0 6px 0;
+            }}
+            QLabel#sectionTitleLeft {{
+                background: transparent;
+                font-size: 14px;
+                font-weight: 600;
+                padding: 2px 0 4px 0;
             }}
 
             QLabel#muted {{ color: {colors['muted']}; }}
@@ -615,11 +662,17 @@ class QtAppWindow(QMainWindow):
                 border: none;
             }}
             QLabel#title {{ font-size: 22px; font-weight: 700; background: transparent; }}
-            QLabel#sectionTitle, QLabel#sectionTitleLeft {{
+            QLabel#sectionTitle {{
                 background: transparent;
                 font-size: 18px;
                 font-weight: 600;
                 padding: 4px 0 6px 0;
+            }}
+            QLabel#sectionTitleLeft {{
+                background: transparent;
+                font-size: 14px;
+                font-weight: 600;
+                padding: 2px 0 4px 0;
             }}
 
             QLabel#muted {{ color: {colors['muted']}; }}
@@ -743,8 +796,29 @@ class QtAppWindow(QMainWindow):
         self.settings["start_mode"] = "random" if self.start_random.isChecked() else "memory"
         settings_mod.save_settings(self.settings)
 
+    def set_source(self, source):
+        self.source = "movies" if source == "movies" else "shows"
+        if self.source == "movies":
+            self.shows_tab.setObjectName("sourceTabIdle")
+            self.movies_tab.setObjectName("sourceTabActive")
+            self.seasons_title.hide()
+            self.season_list.hide()
+        else:
+            self.shows_tab.setObjectName("sourceTabActive")
+            self.movies_tab.setObjectName("sourceTabIdle")
+            self.seasons_title.show()
+            self.season_list.show()
+        self.shows_tab.style().unpolish(self.shows_tab)
+        self.shows_tab.style().polish(self.shows_tab)
+        self.movies_tab.style().unpolish(self.movies_tab)
+        self.movies_tab.style().polish(self.movies_tab)
+        self.redraw_shows()
+
     def refresh_library(self):
-        self.library.scan(self.settings.get("library_folders", []))
+        self.library.scan(
+            self.settings.get("library_folders", []),
+            self.settings.get("movie_folders", []),
+        )
         kept = []
         for entry in self.settings.get("watch_order", []):
             show, _season = parse_watch_entry(entry)
@@ -753,15 +827,18 @@ class QtAppWindow(QMainWindow):
         self.settings["watch_order"] = kept
         self.redraw_shows()
         self.redraw_order()
-        self.status.setText(f"{len(self.library.shows)} shows")
+        self.status.setText(
+            f"{len(self.library.shows)} shows, {len(self.library.movies)} movies"
+        )
         self.persist()
 
     def redraw_shows(self):
         query = self.search.text().strip().lower()
+        pool = self.library.movies if self.source == "movies" else self.library.shows
         if query:
-            self.filtered = [show for show in self.library.shows if query in show.lower()]
+            self.filtered = [show for show in pool if query in show.lower()]
         else:
-            self.filtered = list(self.library.shows)
+            self.filtered = list(pool)
         self.show_list.clear()
         self.show_list.addItems(self.filtered)
         self.redraw_seasons()
@@ -769,11 +846,15 @@ class QtAppWindow(QMainWindow):
     def redraw_seasons(self):
         self.season_list.clear()
         self.season_list.addItem("All seasons")
+        if self.source == "movies":
+            return
         items = self.show_list.selectedItems()
         if len(items) != 1:
             self.season_list.setCurrentRow(0)
             return
         show = items[0].text()
+        if self.library.kinds.get(show) == "movie":
+            return
         for number in self.library.seasons_for(show):
             self.season_list.addItem(f"Season {number:02d}")
         self.season_list.setCurrentRow(0)
@@ -783,6 +864,8 @@ class QtAppWindow(QMainWindow):
         self.order_list.addItems(self.settings.get("watch_order", []))
 
     def selected_season(self):
+        if self.source == "movies":
+            return None
         item = self.season_list.currentItem()
         if item is None or item.text().lower().startswith("all"):
             return None
@@ -855,24 +938,36 @@ class QtAppWindow(QMainWindow):
             folders.append(folder)
         self.refresh_library()
 
+    def add_movie_library(self):
+        folder = QFileDialog.getExistingDirectory(self, "Choose a movie library folder")
+        if not folder:
+            return
+        folder = os.path.normpath(folder)
+        folders = self.settings.setdefault("movie_folders", [])
+        if folder not in folders:
+            folders.append(folder)
+        self.refresh_library()
+        self.set_source("movies")
+
     def remove_library(self):
-        folders = list(self.settings.get("library_folders", []))
-        if not folders:
+        tv = list(self.settings.get("library_folders", []))
+        movies = list(self.settings.get("movie_folders", []))
+        labels = [f"TV: {path}" for path in tv] + [f"Movie: {path}" for path in movies]
+        if not labels:
             self.status.setText("No library folders to remove.")
             return
-        path, _ok = QFileDialog.getOpenFileName(self, "Not used")
-        # Simple chooser: pick from a list dialog
-        from PySide6.QtWidgets import QInputDialog
         choice, ok = QInputDialog.getItem(
-            self, "Remove library folder", "Folder", folders, 0, False
+            self, "Remove library folder", "Folder", labels, 0, False
         )
         if not ok:
             return
-        self.settings["library_folders"] = [item for item in folders if item != choice]
+        path = choice.split(": ", 1)[-1]
+        self.settings["library_folders"] = [item for item in tv if item != path]
+        self.settings["movie_folders"] = [item for item in movies if item != path]
         self.refresh_library()
 
     def clear_libraries(self):
-        if not self.settings.get("library_folders"):
+        if not self.settings.get("library_folders") and not self.settings.get("movie_folders"):
             self.status.setText("Library is already empty.")
             return
         if QMessageBox.question(
@@ -883,6 +978,7 @@ class QtAppWindow(QMainWindow):
         ) != QMessageBox.Yes:
             return
         self.settings["library_folders"] = []
+        self.settings["movie_folders"] = []
         self.settings["watch_order"] = []
         self.refresh_library()
         self.status.setText("Libraries cleared.")
@@ -1049,6 +1145,9 @@ class QtAppWindow(QMainWindow):
         if not items or index >= len(items):
             return
         item = items[index]
+        self.memory.record_play(item)
+        if hasattr(self, "tabs") and self.tabs.currentIndex() == 1:
+            self.refresh_history()
         self.now_label.setText(
             f"Now playing: {item.get('show')} "
             f"S{int(item.get('season', 1)):02d}E{int(item.get('episode', 1)):02d}"
@@ -1078,10 +1177,14 @@ class QtAppWindow(QMainWindow):
         if current_path:
             for candidate, item in enumerate(items):
                 if normalize_media_path(item.get("path", "")) == current_path:
-                    if candidate > index:
-                        for done in items[index:candidate]:
-                            self.memory.advance(done)
-                        self.memory.record_play(item)
+                    if candidate != index:
+                        if candidate > index:
+                            for done in items[index:candidate]:
+                                self.memory.advance(done)
+                            for seen in items[index:candidate + 1]:
+                                self.memory.record_play(seen)
+                        else:
+                            self.memory.record_play(item)
                     index = candidate
                     self.memory.session["current_index"] = index
                     break
