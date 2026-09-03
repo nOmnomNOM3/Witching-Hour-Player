@@ -2,7 +2,7 @@ import os
 import sys
 import webbrowser
 
-from PySide6.QtCore import Qt, QTimer, QSize
+from PySide6.QtCore import Qt, QTimer, QSize, QEvent
 from PySide6.QtGui import QAction, QActionGroup, QColor, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
@@ -151,6 +151,7 @@ class QtAppWindow(QMainWindow):
         self.glass = QWidget(self.stage)
         self.glass.setObjectName("glass")
 
+        self.installEventFilter(self)
         self._build_menu()
         self._build_glass()
         self._apply_theme()
@@ -269,6 +270,7 @@ class QtAppWindow(QMainWindow):
         self.order_list = QListWidget()
         self.order_list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.order_list.setTextElideMode(Qt.ElideRight)
+        self.order_list.itemSelectionChanged.connect(self._load_count_for_selection)
         right.addWidget(self.order_list)
         self.now_panel = QWidget()
         self.now_panel.setObjectName("compactPanel")
@@ -283,12 +285,29 @@ class QtAppWindow(QMainWindow):
         root.addLayout(lists, 1)
 
         options = QHBoxLayout()
-        count_box = QVBoxLayout()
+        self.count_panel = QWidget()
+        self.count_panel.setObjectName("compactPanel")
+        self.count_panel.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Maximum)
+        count_box = QVBoxLayout(self.count_panel)
+        count_box.setContentsMargins(10, 8, 10, 8)
         count_box.addWidget(QLabel("Episodes per show"))
         self.count = QLineEdit(str(self.settings.get("universal_count", 3)))
         self.count.setMaximumWidth(60)
+        self.count.editingFinished.connect(self._save_count)
         count_box.addWidget(self.count)
-        options.addLayout(count_box)
+        self.count_all = QRadioButton("All shows")
+        self.count_one = QRadioButton("Selected show")
+        count_mode = QButtonGroup(self)
+        count_mode.addButton(self.count_all)
+        count_mode.addButton(self.count_one)
+        if self.settings.get("episode_mode") == "individual":
+            self.count_one.setChecked(True)
+        else:
+            self.count_all.setChecked(True)
+        self.count_all.toggled.connect(self._save_count)
+        count_box.addWidget(self.count_all)
+        count_box.addWidget(self.count_one)
+        options.addWidget(self.count_panel)
 
         self.start_panel = QWidget()
         self.start_panel.setObjectName("compactPanel")
@@ -317,19 +336,23 @@ class QtAppWindow(QMainWindow):
         off = QPushButton("Off")
         off.clicked.connect(lambda: self.set_sleep("off"))
         sleep.addWidget(off)
-        for minutes in (5, 10, 15, 30, 45, 60):
-            button = QPushButton(f"{minutes}m")
-            button.clicked.connect(lambda checked=False, value=minutes: self.set_sleep("minutes", value))
-            sleep.addWidget(button)
-        end = QPushButton("End of episode")
-        end.clicked.connect(lambda: self.set_sleep("end_episode"))
-        sleep.addWidget(end)
-        self.custom_sleep = QLineEdit(str(self.settings.get("sleep_timer_minutes", 15)))
-        self.custom_sleep.setMaximumWidth(50)
+        thirty = QPushButton("30m")
+        thirty.clicked.connect(lambda: self.set_sleep("minutes", 30))
+        sleep.addWidget(thirty)
+        one_h = QPushButton("1h")
+        one_h.clicked.connect(lambda: self.set_sleep("minutes", 60))
+        sleep.addWidget(one_h)
+        saved_min = int(self.settings.get("sleep_timer_minutes", 60))
+        hours_default = saved_min / 60 if saved_min >= 60 else 2
+        if hours_default == int(hours_default):
+            hours_default = str(int(hours_default))
+        else:
+            hours_default = str(hours_default)
+        self.custom_sleep = QLineEdit()
+        self.custom_sleep.setMaximumWidth(56)
+        self.custom_sleep.setPlaceholderText("Hours")
+        self.custom_sleep.editingFinished.connect(self.apply_custom_sleep)
         sleep.addWidget(self.custom_sleep)
-        custom = QPushButton("Custom min")
-        custom.clicked.connect(self.apply_custom_sleep)
-        sleep.addWidget(custom)
         sleep.addStretch()
         play = QPushButton("Start playback")
         play.setObjectName("accent")
@@ -338,6 +361,15 @@ class QtAppWindow(QMainWindow):
         root.addLayout(sleep)
         self.status = QLabel("Ready.")
         root.addWidget(self.status)
+
+    def eventFilter(self, obj, event):
+        if event.type() == QEvent.MouseButtonPress and hasattr(self, "custom_sleep"):
+            focused = QApplication.focusWidget()
+            if focused is self.custom_sleep:
+                target = QApplication.widgetAt(event.globalPosition().toPoint())
+                if target is not self.custom_sleep:
+                    self.custom_sleep.clearFocus()
+        return super().eventFilter(obj, event)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -525,11 +557,52 @@ class QtAppWindow(QMainWindow):
         self._refresh_timer_label()
         self._layout_layers()
 
+    def _selected_order_entry(self):
+        item = self.order_list.currentItem()
+        return item.text() if item else None
+
+    def _load_count_for_selection(self):
+        if not self.count_one.isChecked():
+            self.count.setText(str(self.settings.get("universal_count", 3)))
+            return
+        entry = self._selected_order_entry()
+        individual = self.settings.setdefault("individual_counts", {})
+        if entry and entry in individual:
+            self.count.setText(str(individual[entry]))
+        elif entry:
+            show = entry.split(" — ")[0]
+            self.count.setText(str(individual.get(show, self.settings.get("universal_count", 3))))
+        else:
+            self.count.setText(str(self.settings.get("universal_count", 3)))
+
+    def _save_count(self, *_):
+        try:
+            value = max(1, int(self.count.text()))
+        except ValueError:
+            return
+        if self.count_one.isChecked():
+            self.settings["episode_mode"] = "individual"
+            entry = self._selected_order_entry()
+            if entry:
+                self.settings.setdefault("individual_counts", {})[entry] = value
+        else:
+            self.settings["episode_mode"] = "universal"
+            self.settings["universal_count"] = value
+        self.persist()
+
     def persist(self):
         try:
-            self.settings["universal_count"] = max(1, int(self.count.text()))
+            value = max(1, int(self.count.text()))
         except ValueError:
-            pass
+            value = int(self.settings.get("universal_count", 3))
+        if hasattr(self, "count_one") and self.count_one.isChecked():
+            self.settings["episode_mode"] = "individual"
+            entry = self._selected_order_entry()
+            if entry:
+                self.settings.setdefault("individual_counts", {})[entry] = value
+        else:
+            self.settings["episode_mode"] = "universal"
+            self.settings["universal_count"] = value
         self.settings["start_mode"] = "random" if self.start_random.isChecked() else "memory"
         settings_mod.save_settings(self.settings)
 
@@ -717,20 +790,23 @@ class QtAppWindow(QMainWindow):
             webbrowser.open(GITHUB_BUGS)
 
     def apply_custom_sleep(self):
+        raw = self.custom_sleep.text().strip().lower().replace("h", "")
+        if not raw:
+            return
         try:
-            minutes = int(self.custom_sleep.text())
-            if minutes < 1 or minutes > 1440:
+            hours = float(raw)
+            if hours <= 0 or hours > 24:
                 raise ValueError
         except ValueError:
-            self.status.setText("Enter minutes between 1 and 1440.")
+            self.status.setText("Enter hours between 0.5 and 24.")
             return
+        minutes = max(1, int(round(hours * 60)))
         self.set_sleep("minutes", minutes)
 
     def set_sleep(self, mode, minutes=None):
         self.settings["sleep_timer_mode"] = mode
         if minutes is not None:
             self.settings["sleep_timer_minutes"] = int(minutes)
-            self.custom_sleep.setText(str(int(minutes)))
         self.persist()
         self._refresh_timer_label()
         if self.vlc.running():
@@ -740,12 +816,14 @@ class QtAppWindow(QMainWindow):
         mode = self.settings.get("sleep_timer_mode", "off")
         if mode == "off":
             self.timer_label.setText("Sleep timer: off")
-        elif mode == "end_episode":
-            self.timer_label.setText("Sleep timer: end of episode")
+            return
+        minutes = int(self.settings.get("sleep_timer_minutes", 60))
+        if minutes % 60 == 0:
+            hours = minutes // 60
+            label = f"{hours}h" if hours != 1 else "1h"
         else:
-            self.timer_label.setText(
-                f"Sleep timer: {self.settings.get('sleep_timer_minutes', 15)} min"
-            )
+            label = f"{minutes}m"
+        self.timer_label.setText(f"Sleep timer: {label}")
 
     def _arm_sleep_timer(self):
         self.sleep_timer.stop()
