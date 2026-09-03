@@ -93,6 +93,30 @@ class Memory:
         self.session = {}
         delete_file(paths.SESSION_FILE)
 
+    def load_history(self, limit=500):
+        data = load_json(paths.HISTORY_FILE, [])
+        if not isinstance(data, list):
+            return []
+        return data[-limit:]
+
+    def record_play(self, item, limit=500):
+        if not item:
+            return
+        path = item.get("path") or ""
+        history = self.load_history(limit)
+        if history and history[-1].get("path") == path:
+            return
+        history.append(
+            {
+                "when": datetime.now().isoformat(timespec="seconds"),
+                "show": item.get("show", ""),
+                "season": item.get("season"),
+                "episode": item.get("episode"),
+                "path": path,
+            }
+        )
+        save_json(paths.HISTORY_FILE, history[-limit:])
+
     def valid_session(self):
         items = self.session.get("items", [])
         if not isinstance(items, list) or not items:

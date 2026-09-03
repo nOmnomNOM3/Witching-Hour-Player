@@ -4,3 +4,5 @@ dist/
 output/
 __pycache__/
 *.py[cod]
+*.zip
+*.7z

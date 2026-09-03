@@ -13,11 +13,14 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QListWidget,
     QMainWindow,
+    QInputDialog,
     QMessageBox,
     QPushButton,
     QRadioButton,
+    QPlainTextEdit,
     QSizePolicy,
     QStackedLayout,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -95,6 +98,16 @@ def first_existing(*names):
     return ""
 
 
+def shade_hex(color, factor):
+    text = color.lstrip("#")
+    if len(text) != 6:
+        return color
+    red = max(0, min(255, int(int(text[0:2], 16) * factor)))
+    green = max(0, min(255, int(int(text[2:4], 16) * factor)))
+    blue = max(0, min(255, int(int(text[4:6], 16) * factor)))
+    return f"#{red:02x}{green:02x}{blue:02x}"
+
+
 class Backdrop(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -131,6 +144,10 @@ class QtAppWindow(QMainWindow):
         super().__init__()
         self.settings = settings_mod.load_settings()
         self.settings["vlc_path"] = find_vlc(self.settings.get("vlc_path", ""))
+        default_count = max(1, int(self.settings.get("default_episode_count") or self.settings.get("universal_count") or 3))
+        self.settings["default_episode_count"] = default_count
+        self.settings["universal_count"] = default_count
+        self.settings["episode_mode"] = "universal"
         settings_mod.save_settings(self.settings)
         self.library = Library()
         self.memory = Memory()
@@ -185,6 +202,11 @@ class QtAppWindow(QMainWindow):
         file_menu.addAction("Clear all libraries…", self.clear_libraries)
         file_menu.addAction("Rescan library", self.refresh_library)
         file_menu.addSeparator()
+        file_menu.addAction(
+            "Default number of episodes to queue…",
+            self.set_default_episode_count,
+        )
+        file_menu.addSeparator()
         file_menu.addAction("Exit", self.close)
 
         view_menu = self.menuBar().addMenu("View")
@@ -201,8 +223,19 @@ class QtAppWindow(QMainWindow):
         help_menu.addAction("About Witching Hour", self.show_about)
 
     def _build_glass(self):
-        root = QVBoxLayout(self.glass)
-        root.setContentsMargins(20, 16, 20, 12)
+        shell = QVBoxLayout(self.glass)
+        shell.setContentsMargins(12, 10, 12, 8)
+        shell.setSpacing(6)
+
+        self.tabs = QTabWidget()
+        self.tabs.setObjectName("mainTabs")
+        self.tabs.setDocumentMode(True)
+        self.tabs.currentChanged.connect(self._on_tab_changed)
+        shell.addWidget(self.tabs)
+
+        builder = QWidget()
+        root = QVBoxLayout(builder)
+        root.setContentsMargins(8, 8, 8, 4)
         root.setSpacing(8)
 
         self.search = QLineEdit()
@@ -362,6 +395,20 @@ class QtAppWindow(QMainWindow):
         self.status = QLabel("Ready.")
         root.addWidget(self.status)
 
+        self.tabs.addTab(builder, "Builder Screen")
+
+        history_page = QWidget()
+        history_layout = QVBoxLayout(history_page)
+        history_layout.setContentsMargins(8, 8, 8, 8)
+        hint = QLabel("Last 500 files played.")
+        hint.setObjectName("muted")
+        history_layout.addWidget(hint)
+        self.history_view = QPlainTextEdit()
+        self.history_view.setReadOnly(True)
+        self.history_view.setObjectName("historyLog")
+        history_layout.addWidget(self.history_view)
+        self.tabs.addTab(history_page, "History")
+
     def eventFilter(self, obj, event):
         if event.type() == QEvent.MouseButtonPress and hasattr(self, "custom_sleep"):
             focused = QApplication.focusWidget()
@@ -438,6 +485,7 @@ class QtAppWindow(QMainWindow):
             self.backdrop.hide()
             self.center_art.clear()
             self.center_art.hide()
+        tab_idle = shade_hex(colors['accent'], 0.38)
         self.setStyleSheet(
             f"""
             QMainWindow, QWidget {{ background: {colors['bg']}; color: {colors['fg']}; }}
@@ -487,6 +535,29 @@ class QtAppWindow(QMainWindow):
             }}
 
             QLabel#muted {{ color: {colors['muted']}; }}
+            QTabWidget#mainTabs::pane {{
+                border: none;
+                background: transparent;
+            }}
+            QTabBar::tab {{
+                background: {tab_idle};
+                color: {colors['fg']};
+                padding: 8px 18px;
+                margin-right: 4px;
+                border: none;
+                border-radius: 6px 6px 0 0;
+            }}
+            QTabBar::tab:selected {{
+                background: {colors['accent']};
+                color: {colors['accent_fg']};
+            }}
+            QPlainTextEdit#historyLog {{
+                background: {colors['field']};
+                color: {colors['fg']};
+                border: none;
+                font-family: Consolas, "Segoe UI", sans-serif;
+            }}
+
             QScrollBar:vertical {{
                 background: rgba(255, 255, 255, 36);
                 width: 10px;
@@ -552,6 +623,29 @@ class QtAppWindow(QMainWindow):
             }}
 
             QLabel#muted {{ color: {colors['muted']}; }}
+            QTabWidget#mainTabs::pane {{
+                border: none;
+                background: transparent;
+            }}
+            QTabBar::tab {{
+                background: {tab_idle};
+                color: {colors['fg']};
+                padding: 8px 18px;
+                margin-right: 4px;
+                border: none;
+                border-radius: 6px 6px 0 0;
+            }}
+            QTabBar::tab:selected {{
+                background: {colors['accent']};
+                color: {colors['accent_fg']};
+            }}
+            QPlainTextEdit#historyLog {{
+                background: {colors['field']};
+                color: {colors['fg']};
+                border: none;
+                font-family: Consolas, "Segoe UI", sans-serif;
+            }}
+
             """
         )
         self._refresh_timer_label()
@@ -589,6 +683,49 @@ class QtAppWindow(QMainWindow):
             self.settings["episode_mode"] = "universal"
             self.settings["universal_count"] = value
         self.persist()
+
+    def set_default_episode_count(self):
+        current = max(1, int(self.settings.get("default_episode_count", 3)))
+        value, ok = QInputDialog.getInt(
+            self,
+            "Default episodes to queue",
+            "Used for every show when All shows is selected.\n"
+            "Applied again the next time Witching Hour starts.",
+            current,
+            1,
+            99,
+            1,
+        )
+        if not ok:
+            return
+        self.settings["default_episode_count"] = value
+        self.settings["universal_count"] = value
+        self.settings["episode_mode"] = "universal"
+        self.count.setText(str(value))
+        self.count_all.setChecked(True)
+        self.persist()
+        self.status.setText(f"Default episodes to queue is now {value}.")
+
+    def _on_tab_changed(self, index):
+        if index == 1:
+            self.refresh_history()
+
+    def refresh_history(self):
+        entries = list(reversed(self.memory.load_history(500)))
+        lines = []
+        for item in entries:
+            when = item.get("when", "")
+            show = item.get("show", "")
+            try:
+                season = int(item.get("season") or 0)
+                episode = int(item.get("episode") or 0)
+                stamp = f"S{season:02d}E{episode:02d}"
+            except (TypeError, ValueError):
+                stamp = ""
+            path = item.get("path", "")
+            name = os.path.basename(path) if path else ""
+            lines.append(f"{when}  {show}  {stamp}  {name}".rstrip())
+        self.history_view.setPlainText("\n".join(lines) if lines else "Nothing played yet.")
 
     def persist(self):
         try:
@@ -901,6 +1038,7 @@ class QtAppWindow(QMainWindow):
             QMessageBox.critical(self, "Playback", str(error))
             return
         self.memory.save_session(items, 0, items[0].get("resume_time", 0))
+        self.memory.record_play(items[0])
         self._update_now(0)
         self.status.setText(f"Playing {len(items)} episode(s)")
         self.monitor.start()
@@ -943,6 +1081,7 @@ class QtAppWindow(QMainWindow):
                     if candidate > index:
                         for done in items[index:candidate]:
                             self.memory.advance(done)
+                        self.memory.record_play(item)
                     index = candidate
                     self.memory.session["current_index"] = index
                     break
@@ -959,6 +1098,7 @@ class QtAppWindow(QMainWindow):
             and current_time >= current_length - 2
         ):
             self.memory.advance(items[index])
+            self.memory.record_play(items[index])
             self.memory.clear_session()
             self.status.setText("Playlist finished.")
             self.monitor.stop()
